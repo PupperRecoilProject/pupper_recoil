@@ -79,6 +79,11 @@ void RobotController::update() {
         case ControlMode::POSITION_CONTROL:
             updatePositionControl();
             break;
+        case ControlMode::ERROR:
+            // 在錯誤模式下，持續確保所有馬達電流為零
+            setAllMotorsIdle(); 
+            // 可以加上 LED 閃爍等視覺警報
+            break;
 
         // 其他模式...
     }
@@ -106,23 +111,10 @@ void RobotController::updateHoming() {
                 command_currents[i] = 0; // 停止這個馬達
 
                 // 計算並設定零點偏移
-                float raw_pos_rad = motors->getRawPosition_rad(i); // 直接獲取原始弧度
-                // 注意：homed_positions_rad 已經是弧度了，但它是基於"圈數"定義的理想位置
-                // 我們需要將原始讀數和理想讀數對齊
+                float raw_pos_rad = motors->getRawPosition_rad(i);
                 float homed_pos_rad = homed_positions_rad[i];
-                        
-                // 這部分的邏輯需要重新思考
-                // 偏移量 = 原始讀數 - (期望的校準後讀數)
-                // 但期望的校準後讀數需要考慮方向
-                float target_calibrated_rad = homed_pos_rad * direction_multipliers[i];
-                float offset_rad = raw_pos_rad - target_calibrated_rad;
-                        
-                // 如果 homing_directions 和 direction_multipliers 相關，邏輯會更複雜
-                // 簡化版：
-                // 偏移量 = 當前堵轉時的原始弧度 - 應該在的目標弧度
-                // 注意：homing_directions 只決定堵轉方向，不參與偏移計算
-                float offset_rad_to_set = raw_pos_rad - homed_positions_rad[i];
-                        
+                float offset_rad_to_set = raw_pos_rad - homed_pos_rad;
+
                 motors->setOffset_rad(i, offset_rad_to_set);
                         
                 Serial.printf("Motor %d homed. Raw: %.4f rad, Target: %.4f rad, Offset set to: %.4f rad\n", 
@@ -147,6 +139,7 @@ void RobotController::setAllMotorsIdle() {
 // 新增 updateWiggleTest() 函式
 void RobotController::updateWiggleTest() {
     const float MAX_REASONABLE_ERROR_RAD = 0.5; // 約 30 度。如果誤差超過這個值，說明出問題了。
+    const int16_t WIGGLE_MAX_CURRENT = MAX_COMMAND_CURRENT_mA;
 
     // 1. 計算目標位置
     float target_offset = wiggle_amplitude_rad * sin(millis() / 1000.0f * 2.0f * PI * wiggle_frequency_hz);
@@ -169,6 +162,14 @@ void RobotController::updateWiggleTest() {
     // 4. P 控制器：計算指令電流
     int16_t command_current = (int16_t)(wiggle_kp * error_rad);
     
+    // ================== 中止機制 ==================
+    if (abs(command_current) > WIGGLE_MAX_CURRENT) {
+        Serial.printf("!!! WIGGLE TEST ERROR !!! Calculated current %d mA exceeds limit %d mA. Switching to IDLE.\n", command_current, WIGGLE_MAX_CURRENT);
+        setIdle(); // 中止擺動測試，切換到安全的待機模式
+        return;    // 立即退出本次 update，避免發送超限電流
+    }
+    // =================================================
+
     // 5. 限制最大電流
     command_current = constrain(command_current, -MAX_COMMAND_CURRENT_mA, MAX_COMMAND_CURRENT_mA);
 
@@ -197,10 +198,19 @@ void RobotController::setIdle() {
 
 // 接收手動控制指令
 void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
+    const int16_t MANUAL_MAX_CURRENT = MAX_COMMAND_CURRENT_mA;
+
     if (mode == ControlMode::HOMING) {
         Serial.println("  [WARN] Cannot manually control motors during homing. Command ignored.");
         return;
     }
+    // ================== 新增：指令拒絕機制 ==================
+    if (abs(current) > MANUAL_MAX_CURRENT) {
+        Serial.printf("  [ERROR] Manual current command %d mA exceeds limit %d mA. Command REJECTED.\n", current, MANUAL_MAX_CURRENT);
+        return; // 直接拒絕指令，不進行任何操作
+    }
+    // ======================================================
+
     // 切換到手動模式 (如果我們新增了 MANUAL 模式) 或者直接在 IDLE/POSITION_CONTROL 模式下覆蓋指令
     mode = ControlMode::MANUAL_CONTROL;
     // 為簡化，我們直接修改一個陣列，並在 update 中應用它
@@ -210,7 +220,7 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
             manual_current_commands[i] = 0;
         }
         // 設定目標馬達的電流
-        manual_current_commands[motorID] = constrain(current, -MAX_COMMAND_CURRENT_mA, MAX_COMMAND_CURRENT_mA);
+        manual_current_commands[motorID] = current;
         
         // 為了立即響應，直接發送一次
         motors->setAllCurrents(manual_current_commands);

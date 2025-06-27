@@ -73,21 +73,35 @@ int16_t MotorController::getRawCurrent(int motorID) {
 
 
 // 這個函式才是與 C610Bus::CommandTorques 對應的關鍵
-void MotorController::setAllCurrents(int16_t currents[TOTAL_MOTORS]) {
-    // === 控制 Bus 1 (對應全域馬達 ID 0-5) ===
-    // 發送給 Bus 1 的 ID 0, 1, 2, 3 (對應全域馬達 ID 0, 1, 2, 3)
+bool MotorController::setAllCurrents(int16_t currents[TOTAL_MOTORS]) {
+    // 1. 進行安全檢查
+    for (int i = 0; i < TOTAL_MOTORS; i++) {
+        if (abs(currents[i]) > ABSOLUTE_MAX_CURRENT_mA) {
+            Serial.printf("\n\n!!! CRITICAL MOTOR CONTROLLER FAILURE !!!\n");
+            Serial.printf("Motor %d current command %d mA exceeds ABSOLUTE LIMIT %d mA.\n", i, currents[i], ABSOLUTE_MAX_CURRENT_mA);
+            Serial.printf("ALL MOTORS HALTED BY HARDWARE ABSTRACTION LAYER.\n\n");
+            
+            // 觸發緊急停機：向所有馬達發送零電流指令
+            int16_t zero_currents[TOTAL_MOTORS] = {0};
+            // 這裡直接呼叫底層的 C610Bus 命令來確保指令發出
+            bus1.CommandTorques(0, 0, 0, 0, C610Subbus::kIDZeroToThree);
+            bus1.CommandTorques(0, 0, 0, 0, C610Subbus::kIDFourToSeven);
+            bus2.CommandTorques(0, 0, 0, 0, C610Subbus::kIDZeroToThree);
+            bus2.CommandTorques(0, 0, 0, 0, C610Subbus::kIDFourToSeven);
+
+            // 通知上層控制器發生了錯誤
+            return false; 
+        }
+    }
+
+    // 2. 如果所有檢查都通過，才發送正常指令
     bus1.CommandTorques(currents[0], currents[1], currents[2], currents[3], C610Subbus::kIDZeroToThree);
-    
-    // 發送給 Bus 1 的 ID 4, 5 (對應全域馬達 ID 4, 5)
-    // 注意：C610Bus::CommandTorques 需要四個參數，不足的用 0 補足
     bus1.CommandTorques(currents[4], currents[5], 0, 0, C610Subbus::kIDFourToSeven);
-
-    // === 控制 Bus 2 (對應全域馬達 ID 6-11) ===
-    // 發送給 Bus 2 的 ID 0, 1, 2, 3 (對應全域馬達 ID 6, 7, 8, 9)
     bus2.CommandTorques(currents[6], currents[7], currents[8], currents[9], C610Subbus::kIDZeroToThree);
-
-    // 發送給 Bus 2 的 ID 4, 5 (對應全域馬達 ID 10, 11)
     bus2.CommandTorques(currents[10], currents[11], 0, 0, C610Subbus::kIDFourToSeven);
+
+    // 通知上層控制器指令已成功發送
+    return true;
 }
 
 // 設定偏移量 (弧度)

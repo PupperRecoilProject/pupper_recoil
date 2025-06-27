@@ -1,4 +1,4 @@
-// include/RobotController.h (建議放在 include 資料夾)
+// include/RobotController.h (放在 include 資料夾)
 
 #ifndef ROBOT_CONTROLLER_H
 #define ROBOT_CONTROLLER_H
@@ -33,7 +33,7 @@ public:
 
     void startWiggleTest(int motorID); // 宣告公開的觸發函式
     float homing_current_mA; // 歸零電流
-    const int16_t MAX_COMMAND_CURRENT_mA = 1000; // 馬達電流限制 (毫安)
+    const int16_t MAX_COMMAND_CURRENT_mA = 1000; // 馬達電流限制 (毫安) 預設1000ma
     
 private:
     void updateHoming();

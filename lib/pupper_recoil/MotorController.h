@@ -27,7 +27,7 @@ public:
     float getRawVelocity_rad(int motorID);
     int16_t getRawCurrent(int motorID);
 
-    void setAllCurrents(int16_t currents[TOTAL_MOTORS]);
+    bool setAllCurrents(int16_t currents[TOTAL_MOTORS]); // 修改 setAllCurrents 的返回類型，讓它可以報告狀態。返回 true 表示成功，返回 false 表示發生嚴重錯誤並已停機
     void setOffset_rad(int motorID, float offset);
 
     // 將 getOffset_rad 移動到這裡
@@ -37,6 +37,8 @@ private:
     C610Bus<CAN1> bus1;
     C610Bus<CAN2> bus2;
     float _offsets_rad[TOTAL_MOTORS];
+    const int16_t ABSOLUTE_MAX_CURRENT_mA = 1000; // 在 MotorController 內部定義安全限制 1000ma
+
 };
 
 #endif
