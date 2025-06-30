@@ -69,6 +69,9 @@ private:
     float target_positions_rad[NUM_ROBOT_MOTORS];
     float pos_kp, pos_kd; // P 和 D 控制器增益
 
+    // 發送所有馬達電流指令
+    void sendAllCurrentsCommand(int16_t currents[NUM_ROBOT_MOTORS]);
+
 };
 
 #endif

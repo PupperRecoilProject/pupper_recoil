@@ -77,6 +77,7 @@ bool MotorController::setAllCurrents(int16_t currents[TOTAL_MOTORS]) {
     // 1. 進行安全檢查
     for (int i = 0; i < TOTAL_MOTORS; i++) {
         if (abs(currents[i]) > ABSOLUTE_MAX_CURRENT_mA) {
+            // 發現超限，打印詳細錯誤，觸發停機，並報告失敗
             Serial.printf("\n\n!!! CRITICAL MOTOR CONTROLLER FAILURE !!!\n");
             Serial.printf("Motor %d current command %d mA exceeds ABSOLUTE LIMIT %d mA.\n", i, currents[i], ABSOLUTE_MAX_CURRENT_mA);
             Serial.printf("ALL MOTORS HALTED BY HARDWARE ABSTRACTION LAYER.\n\n");

@@ -20,6 +20,20 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     direction_multipliers = {-1, -1, 1, -1, 1, -1, -1, -1, 1, -1, 1, -1};
 }
 
+// 馬達的電流控制跟安全狀態切換
+void RobotController::sendAllCurrentsCommand(int16_t currents[NUM_ROBOT_MOTORS]) {
+    // 如果控制器已經處於錯誤狀態，則不執行任何操作，避免狀態被覆蓋
+    if (mode == ControlMode::ERROR) {
+        return;
+    }
+
+    // 呼叫底層的 setAllCurrents 並檢查其返回值
+    if (!motors->setAllCurrents(currents)) {
+        // 如果底層報告失敗 (返回 false)，則將本控制器狀態設為 ERROR
+        mode = ControlMode::ERROR;
+    }
+}
+
 void RobotController::begin() {
     // --- 初始化從 DriveSystem 借鑒的參數 ---
     // 這些值需要根據您的機器狗實際情況調整
@@ -74,7 +88,7 @@ void RobotController::update() {
             break;
         case ControlMode::MANUAL_CONTROL:
             // 在手動模式下，持續發送手動指令
-            motors->setAllCurrents(manual_current_commands);
+            sendAllCurrentsCommand(manual_current_commands);
             break;
         case ControlMode::POSITION_CONTROL:
             updatePositionControl();
@@ -124,7 +138,7 @@ void RobotController::updateHoming() {
         }
     }
     
-    motors->setAllCurrents(command_currents);
+    sendAllCurrentsCommand(command_currents);
 
     // TODO: 檢查 homing_phase 是否完成，並進入下一個 phase
     // if (homing_phase == 0 && knee_axes_all_homed) { ... }
@@ -133,7 +147,7 @@ void RobotController::updateHoming() {
 
 void RobotController::setAllMotorsIdle() {
     int16_t zero_currents[NUM_ROBOT_MOTORS] = {0};
-    motors->setAllCurrents(zero_currents);
+    sendAllCurrentsCommand(zero_currents);
 }
 
 // 新增 updateWiggleTest() 函式
@@ -176,7 +190,7 @@ void RobotController::updateWiggleTest() {
     // 6. 發送指令
     int16_t all_currents[NUM_ROBOT_MOTORS] = {0};
     all_currents[wiggle_motor_id] = command_current;
-    motors->setAllCurrents(all_currents);
+    sendAllCurrentsCommand(all_currents);
 }
 
 bool RobotController::isHomed() {
@@ -223,7 +237,7 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
         manual_current_commands[motorID] = current;
         
         // 為了立即響應，直接發送一次
-        motors->setAllCurrents(manual_current_commands);
+        sendAllCurrentsCommand(manual_current_commands);
 
         // 如果當前是 IDLE，可以考慮新增一個 MANUAL 模式
         // mode = ControlMode::MANUAL; 
@@ -297,5 +311,5 @@ void RobotController::updatePositionControl() {
         command_currents[i] = (int16_t)(pos_kp * error);
         command_currents[i] = constrain(command_currents[i], -2000, 2000); // 限制電流
     }
-    motors->setAllCurrents(command_currents);
+    sendAllCurrentsCommand(command_currents);
 }
