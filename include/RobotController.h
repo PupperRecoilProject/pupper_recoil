@@ -74,12 +74,14 @@ private:
 
     // --- 位置控制模式參數 ---
     std::array<float, NUM_ROBOT_MOTORS> target_positions_rad; // 目標位置 (弧度)
-    // 位置控制的安全與調校參數
-    const float POS_CONTROL_KP = 20.0f;                      // P 控制器增益
-    const int16_t POS_CONTROL_MAX_CURRENT = 1500;            // 此模式下的最大電流 (mA)
-    const float POS_CONTROL_MAX_ERROR_RAD = 0.5f;            // ~30度, 位置誤差超過此值則觸發安全停機
+    // 位置控制的安全與調校參數 (PD控制器 + 前饋補償)
+    const float POS_CONTROL_KP = 40.0f;                      // P 控制器增益 (可以適當調高)
+    const float POS_CONTROL_KD = 0.8f;                       // D 控制器增益 (用於穩定)
+    const int16_t FF_CURRENT_mA = 350;                       // 前饋電流 (mA), 用於克服靜摩擦力
+    const int16_t POS_CONTROL_MAX_CURRENT = 2000;            // 此模式下的最大電流 (mA)
+    const float POS_CONTROL_MAX_ERROR_RAD = 1.5f;            // 弧度, 位置誤差超過此值則觸發安全停機
     const float POS_CONTROL_MAX_VELOCITY_RAD_S = 10.0f;      // rad/s, 速度超過此值則觸發安全停機
-
+    
     // --- 擺動測試參數 ---
     int wiggle_motor_id;
     float wiggle_center_pos_rad;

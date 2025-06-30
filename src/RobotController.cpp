@@ -105,11 +105,11 @@ void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
     }
     // 可選: 在這裡增加對 angle_rad 範圍的合理性檢查
 
-    // 如果當前不是位置控制模式，則切換過去
+    // 如果當前不是位置控制模式，則先切換到安全狀態並初始化目標
     if (mode != ControlMode::POSITION_CONTROL) {
         Serial.println("切換至 POSITION_CONTROL 模式。");
-        setIdle();
-        // 將所有目標位置設為當前位置，以避免馬達突然跳動
+        // *** 修改: 不再直接呼叫 setIdle()，而是在這裡初始化位置目標 ***
+        // 這是因為 setIdle 現在會做這件事，我們避免重複。
         for(int i=0; i<NUM_ROBOT_MOTORS; ++i) {
             target_positions_rad[i] = getMotorPosition_rad(i);
         }
@@ -130,19 +130,31 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
         return;
     }
 
-    setIdle(); // 先進入一個已知的安全狀態
+    setIdle(); // <--- 現在這個呼叫會清理掉舊的位置目標！
     mode = ControlMode::MANUAL_CONTROL;
-    manual_current_commands.fill(0); // 先清除所有之前的指令
+    // manual_current_commands.fill(0); // setIdle 已經做過了，但多做一次也無妨
     manual_current_commands[motorID] = current;
     Serial.printf("  設定馬達 %d 的電流為 %d mA。\n", motorID, current);
 }
 
 void RobotController::setIdle() {
+    // 1. 設定模式為 IDLE
     mode = ControlMode::IDLE;
-    manual_current_commands.fill(0); // 清除手動指令
+    
+    // 2. 清除所有模式的狀態變數，這是防止意外行為的關鍵
+    manual_current_commands.fill(0); // 清除手動模式的指令
+    
+    // 清除位置控制模式的目標，將其設定為當前馬達的實際位置
+    // 這樣即使意外切回 POSITION_CONTROL 模式，馬達也不會亂動
+    for (int i=0; i<NUM_ROBOT_MOTORS; ++i) {
+        target_positions_rad[i] = getMotorPosition_rad(i);
+    }
+
+    // 3. 發送零電流指令，讓馬達物理上停止
     setAllMotorsIdle();
-    Serial.println("機器人控制器已設為 IDLE 模式。");
+    Serial.println("機器人控制器已設為 IDLE 模式 (所有狀態已重置)。");
 }
+
 
 // =================================================================
 //   狀態與數據獲取函式
@@ -222,6 +234,7 @@ void RobotController::updateHoming() {
     }
 }
 
+// *** 全新修改的 updatePositionControl ***
 void RobotController::updatePositionControl() {
     int16_t command_currents[NUM_ROBOT_MOTORS] = {0};
 
@@ -229,29 +242,53 @@ void RobotController::updatePositionControl() {
         float current_pos = getMotorPosition_rad(i);
         float current_vel = getMotorVelocity_rad(i);
 
-        // --- 安全檢查 ---
+        // --- 安全檢查 (與之前相同) ---
         if (abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
             Serial.printf("!!! 安全停機 !!! 馬達 %d 速度 %.2f 超出限制 %.2f rad/s。\n", i, current_vel, POS_CONTROL_MAX_VELOCITY_RAD_S);
             setIdle();
             return; // 立刻退出
         }
         
-        float error = target_positions_rad[i] - current_pos;
+        float pos_error = target_positions_rad[i] - current_pos;
         
-        if (abs(error) > POS_CONTROL_MAX_ERROR_RAD) {
-            Serial.printf("!!! 安全停機 !!! 馬達 %d 位置誤差 %.2f 超出限制 %.2f rad。\n", i, error, POS_CONTROL_MAX_ERROR_RAD);
+        if (abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
+            Serial.printf("!!! 安全停機 !!! 馬達 %d 位置誤差 %.2f 超出限制 %.2f rad。\n", i, pos_error, POS_CONTROL_MAX_ERROR_RAD);
             setIdle();
             return; // 立刻退出
         }
 
-        // --- P 控制器 ---
-        int16_t current_command = (int16_t)(POS_CONTROL_KP * error);
+        // --- PD 控制器 + 前饋補償 (更可靠的版本) ---
+
+        // P項：與位置誤差成正比，提供主要驅動力
+        float p_term = POS_CONTROL_KP * pos_error;
+
+        // D項：與速度成反比 (目標速度為0)，提供阻尼，使系統穩定
+        float d_term = -POS_CONTROL_KD * current_vel;
+
+        // 計算PD控制器(反饋)的部分
+        float feedback_current = p_term + d_term;
+
+        // 前饋補償 (Feed-Forward) - 新的、更可靠的邏輯
+        float feedforward_current = 0;
+        // 只有當誤差大於一個微小閾值時，才啟用前饋補償
+        if (abs(pos_error) > 0.01) { // 0.01 rad 約 0.5度
+            if (pos_error > 0) {
+                feedforward_current = FF_CURRENT_mA; // 目標在正向，給正向推力
+            } else {
+                feedforward_current = -FF_CURRENT_mA; // 目標在反向，給反向推力
+            }
+        }
+        // 當誤差很小時，前饋電流為0，避免在目標點附近抖動
+
+        // 總指令電流 = 反饋微調 + 基礎推力
+        int16_t total_current = (int16_t)(feedback_current + feedforward_current);
         
-        // --- 限制電流 ---
-        command_currents[i] = constrain(current_command, -POS_CONTROL_MAX_CURRENT, POS_CONTROL_MAX_CURRENT);
+        // --- 限制最終電流 ---
+        command_currents[i] = constrain(total_current, -POS_CONTROL_MAX_CURRENT, POS_CONTROL_MAX_CURRENT);
     }
     sendAllCurrentsCommand(command_currents);
 }
+
 
 
 void RobotController::updateWiggleTest() {
