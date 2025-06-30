@@ -3,28 +3,34 @@
 // src/imu_motor_test_main.cpp
 
 #include <Arduino.h>
-#include <MotorController.h>  // 引入我們自己封裝的馬達控制器
-#include "RobotController.h"  // 引入新的高階機器人控制器 (注意: .h 檔在 include/ 資料夾)
-#include <LSM6DSO_SPI.h>      // 引入 IMU 程式庫
+#include <MotorController.h>
+#include "RobotController.h"
+#include <LSM6DSO_SPI.h>
 
 // --- 建立全域物件 ---
-LSM6DSO         myIMU;              // IMU 感測器物件
-MotorController myMotorControl;       // 馬達控制器物件 (底層)
-RobotController myRobot(&myMotorControl); // 機器人控制器物件 (高層)，並將馬達控制器傳入
+LSM6DSO         myIMU;
+MotorController myMotorControl;
+RobotController myRobot(&myMotorControl);
 
 // =================================================================
 // --- 固定頻率控制設定 ---
 // =================================================================
-// --- 控制迴圈頻率 ---
-const int CONTROL_FREQUENCY_HZ = 1000; // 控制迴圈頻率 (Hz)。1000Hz (1ms) 是一個常見且高性能的選擇。
-const long CONTROL_INTERVAL_MICROS = 1000000 / CONTROL_FREQUENCY_HZ; // 計算對應的執行間隔 (微秒)
-unsigned long last_control_time_micros = 0; // 上次控制迴圈執行的時間戳
-// --- 數據打印頻率設定 ---
-const int PRINT_FREQUENCY_HZ = 1; // 預設 1Hz，避免影響性能
-const long PRINT_INTERVAL_MILLIS = 1000 / PRINT_FREQUENCY_HZ;
-long last_print_time_millis = 0; // 使用獨立的時間戳
+const int CONTROL_FREQUENCY_HZ = 1000;
+const long CONTROL_INTERVAL_MICROS = 1000000 / CONTROL_FREQUENCY_HZ;
+unsigned long last_control_time_micros = 0;
 
-// --- 函式原型宣告 ---
+const int PRINT_FREQUENCY_HZ = 1;
+const long PRINT_INTERVAL_MILLIS = 1000 / PRINT_FREQUENCY_HZ;
+long last_print_time_millis = 0;
+
+// =================================================================
+// --- 新的、可靠的序列埠指令讀取邏輯 ---
+// =================================================================
+const int SERIAL_BUFFER_SIZE = 128;   // 指令緩衝區最大長度
+char serial_buffer[SERIAL_BUFFER_SIZE]; // 用來儲存傳入字元的緩衝區
+int serial_buffer_pos = 0;            // 目前寫入到緩衝區的位置
+
+void checkAndProcessSerial(); // 檢查並處理序列埠數據的新函式
 void handleSerialCommand(String command);
 void printRobotStatus();
 
@@ -32,36 +38,31 @@ void printRobotStatus();
 //   SETUP - 程式啟動時只會執行一次
 // =================================================================
 void setup() {
-    // 初始化板載 LED 作為狀態指示燈
+    // ... (setup 函式的內容完全不變，從 Serial.begin() 到結束)
     pinMode(LED_BUILTIN, OUTPUT);
-    digitalWrite(LED_BUILTIN, HIGH); // 啟動時先點亮
+    digitalWrite(LED_BUILTIN, HIGH);
     delay(500);
 
-    // 初始化序列埠通訊，用於打印數據和接收指令
     Serial.begin(115200);
-    while (!Serial && millis() < 4000); // 等待序列埠連接，最多 4 秒
+    while (!Serial && millis() < 4000);
 
     Serial.println("\n--- Pupper Robot Control System ---");
 
-    // --- 初始化 IMU ---
     if (myIMU.begin()) {
         Serial.println("[SUCCESS] IMU Initialized.");
     } else {
         Serial.println("[FAILURE] IMU Initialization Failed! Halting.");
-        while(1); // 初始化失敗，停止運行
+        while(1);
     }
     
-    // --- 初始化馬達控制器 ---
-    myMotorControl.begin(); // 雖然是空的，但保留好習慣
+    myMotorControl.begin();
     Serial.println("[SUCCESS] Motor Controller Initialized.");
     
-    // --- 初始化機器人控制器 ---
-    myRobot.begin(); // 初始化機器人控制器的參數 (如歸零方向等)
+    myRobot.begin();
     Serial.println("[SUCCESS] Robot Controller Initialized.");
     Serial.println("----------------------------------------");
     
-    // --- 打印指令說明 ---
-    Serial.println("Commands:");
+    Serial.println("Commands (press Enter to execute):"); // 提示使用者要按 Enter
     Serial.println("  --- High-level ---");
     Serial.println("  home          - Start automatic homing sequence.");
     Serial.println("  pos <id> <rad> - Set target position for one motor (e.g., 'pos 0 1.57').");
@@ -72,67 +73,95 @@ void setup() {
     Serial.println("  reboot        - Reboot the microcontroller.");
     Serial.println("========================================\n");
     
-    digitalWrite(LED_BUILTIN, LOW); // 初始化完成，熄滅 LED
+    digitalWrite(LED_BUILTIN, LOW);
 }
 
+
 // =================================================================
-//   LOOP - 採用新的固定頻率邏輯
+//   LOOP - 採用新的指令處理邏輯
 // =================================================================
 void loop() {
     // -------------------------------------------------
     // 1. 高頻任務 (每個迴圈都執行)
     // -------------------------------------------------
-    // 持續輪詢 CAN bus，盡快接收馬達回傳數據
     myMotorControl.pollAll(); 
     
-    // 持續檢查用戶指令，確保即時響應
-    if (Serial.available() > 0) {
-        String command = Serial.readStringUntil('\n');
-        command.trim();
-        handleSerialCommand(command);
-    }
+    // *** 修改: 呼叫新的指令處理函式，取代舊的邏輯 ***
+    checkAndProcessSerial();
 
     // -------------------------------------------------
     // 2. 固定頻率的控制任務 (例如 1000Hz)
     // -------------------------------------------------
-    // 獲取當前時間 (微秒)
     unsigned long current_micros = micros();
-    // 檢查距離上次執行是否已超過設定的間隔
     if (current_micros - last_control_time_micros >= CONTROL_INTERVAL_MICROS) {
-        // 更新上次執行時間戳
         last_control_time_micros = current_micros;
-
-        // --- 在這個固定頻率的區塊內執行所有時間敏感的操作 ---
         
-        // a. 讀取感測器
         myIMU.readSensor();
-
-        // b. 更新機器人主控制器 (計算並發送馬達指令)
-        // 這確保了我們的控制指令是以穩定的 1000Hz 頻率發送的
         myRobot.update();
     }
 
     // -------------------------------------------------
-    // 3. 低頻率的數據打印任務 (例如 1Hz，至程式最上方調整)
+    // 3. 低頻率的數據打印任務 (例如 1Hz)
     // -------------------------------------------------
-    // 獲取當前時間 (毫秒)
     unsigned long current_millis = millis();
-    // 檢查距離上次打印是否已超過設定的間隔
     if (current_millis - last_print_time_millis >= PRINT_INTERVAL_MILLIS) {
-        // 更新上次打印時間戳
         last_print_time_millis = current_millis;
 
-        digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // 閃爍 LED
-        printRobotStatus(); // 呼叫打印函式
+        digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+        printRobotStatus();
     }
 }
+
 
 // =================================================================
 //   輔助函式 (Helper Functions)
 // =================================================================
 
 /**
- * @brief 處理從序列埠接收到的指令
+ * @brief 檢查序列埠是否有數據，並在接收到換行符時處理指令。
+ *        這個函式取代了舊的 loop() 中的 Serial.readStringUntil() 邏輯。
+ */
+void checkAndProcessSerial() {
+    while (Serial.available() > 0) {
+        char incoming_char = Serial.read();
+
+        // 如果收到換行符 '\n' (Enter 鍵)
+        if (incoming_char == '\n') {
+            // 在緩衝區末端加上字串結束符
+            serial_buffer[serial_buffer_pos] = '\0';
+            
+            // 將緩衝區內容轉換為 String 物件來處理
+            String command = String(serial_buffer);
+            command.trim(); // 去掉前後的空白
+
+            // 只有在指令非空時才處理
+            if (command.length() > 0) {
+                handleSerialCommand(command);
+            }
+
+            // 重置緩衝區，準備接收下一條指令
+            serial_buffer_pos = 0;
+            serial_buffer[0] = '\0';
+
+        } 
+        // 如果收到退格鍵 (Backspace)
+        else if (incoming_char == '\b' || incoming_char == 127) {
+            if (serial_buffer_pos > 0) {
+                serial_buffer_pos--; // 緩衝區位置後退一格
+            }
+        }
+        // 如果是普通字元，且緩衝區未滿
+        else if (serial_buffer_pos < SERIAL_BUFFER_SIZE - 1) {
+            // 將字元存入緩衝區，並移動位置
+            serial_buffer[serial_buffer_pos] = incoming_char;
+            serial_buffer_pos++;
+        }
+    }
+}
+
+
+/**
+ * @brief 處理從序列埠接收到的指令 (此函式內容不變)
  * @param command 從序列埠讀取到的字串指令
  */
 void handleSerialCommand(String command) {
@@ -151,9 +180,7 @@ void handleSerialCommand(String command) {
         if (space1 != -1 && space2 != -1) {
             int motorID = command.substring(space1 + 1, space2).toInt();
             float angle_rad = command.substring(space2 + 1).toFloat();
-
             myRobot.setTargetPosition_rad(motorID, angle_rad);
-
         } else {
             Serial.println("  [ERROR] Invalid format. Use 'pos <id> <angle_in_radians>'.");
         }
@@ -174,9 +201,7 @@ void handleSerialCommand(String command) {
         if (space1 != -1 && space2 != -1) {
             int motorID = command.substring(space1 + 1, space2).toInt();
             int current = command.substring(space2 + 1).toInt();
-
             myRobot.setSingleMotorCurrent(motorID, current);
-
         } else {
             Serial.println("  [ERROR] Invalid format. Use 'motor <id> <current_in_mA>'.");
         }
@@ -199,25 +224,22 @@ void handleSerialCommand(String command) {
 }
 
 /**
- * @brief 打印所有相關的狀態和數據到序列埠
+ * @brief 打印所有相關的狀態和數據到序列埠 (此函式內容不變)
  */
 void printRobotStatus() {
     char buf[100];
 
     Serial.println("---------------- ROBOT STATUS ----------------");
 
-    // --- 打印機器人控制器狀態 ---
     Serial.print("Robot Mode: ");
     Serial.println(myRobot.getModeString());
 
-    // --- 打印 IMU 數據 ---
     snprintf(buf, sizeof(buf), "IMU Acc(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
     Serial.println(buf);
     snprintf(buf, sizeof(buf), "IMU Gyro(dps)-> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.gyroDPS[0], myIMU.gyroDPS[1], myIMU.gyroDPS[2]);
     Serial.println(buf);
     Serial.println("---");
 
-    // --- 打印馬達數據 ---
     Serial.println("Motor Data (ID | Calib. Pos (rad) | Velocity (radps) | Offset (rad))"); 
     for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
         float pos_rad = myRobot.getMotorPosition_rad(i);
