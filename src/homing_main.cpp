@@ -19,7 +19,7 @@ const int CONTROL_FREQUENCY_HZ = 1000;
 const long CONTROL_INTERVAL_MICROS = 1000000 / CONTROL_FREQUENCY_HZ;
 unsigned long last_control_time_micros = 0;
 
-const int PRINT_FREQUENCY_HZ = 1;
+const int PRINT_FREQUENCY_HZ = 2;
 const long PRINT_INTERVAL_MILLIS = 1000 / PRINT_FREQUENCY_HZ;
 long last_print_time_millis = 0;
 
