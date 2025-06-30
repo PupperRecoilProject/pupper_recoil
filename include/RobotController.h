@@ -4,58 +4,81 @@
 #define ROBOT_CONTROLLER_H
 
 #include <MotorController.h>
+#include <array> // 引入 C++ 標準陣列容器
 
 const int NUM_ROBOT_MOTORS = 12;
 
-enum class ControlMode {
-    IDLE,
-    HOMING,
-    POSITION_CONTROL,
-    WIGGLE_TEST,
-    MANUAL_CONTROL,
-    ERROR
-};
-
 class RobotController {
 public:
+    // --- 公開介面 (Public Interface) ---
+
+    // 機器人控制模式的枚舉 (enum)
+    enum class ControlMode {
+        IDLE,             // 待機模式
+        HOMING,           // 自動歸零模式
+        POSITION_CONTROL, // 位置控制模式
+        WIGGLE_TEST,      // 擺動測試模式
+        MANUAL_CONTROL,   // 手動電流控制模式
+        ERROR             // 錯誤模式
+    };
+
+    // 構造函式
     RobotController(MotorController* motor_ctrl);
 
+    // --- 核心生命週期函式 ---
     void begin();
-    void update(); // 在主 loop 中被呼叫
+    void update(); // 在高頻迴圈中被呼叫
 
-    void startHoming(); // 觸發自動歸零
-    bool isHomed();     // 檢查是否已完成歸零
-    void setIdle(); // 新增: 讓外部可以呼叫切換到 IDLE 模式
-    void setSingleMotorCurrent(int motorID, int16_t current); // 新增: 手動控制模式
-    const char* getModeString(); // 新增: 方便打印狀態
-    float getMotorPosition_rad(int motorID); // 新增: 獲取校準後的弧度位置
-    float getMotorVelocity_rad(int motorID); // 新增: 獲取馬達速度
+    // --- 高階指令函式 (由 main 呼叫) ---
+    void startHoming();
+    void startWiggleTest(int motorID);
+    void setTargetPosition_rad(int motorID, float angle_rad); // 新增的位置控制指令
+    void setSingleMotorCurrent(int motorID, int16_t current); // 手動覆寫電流
+    void setIdle(); // 強制機器人進入安全的待機模式
 
-    void startWiggleTest(int motorID); // 宣告公開的觸發函式
-    float homing_current_mA; // 歸零電流
-    const int16_t MAX_COMMAND_CURRENT_mA = 1000; // 馬達電流限制 (毫安) 預設1000ma
+    // --- 狀態與數據獲取函式 ---
+    const char* getModeString();
+    bool isHomed();
+    float getMotorPosition_rad(int motorID);
+    float getMotorVelocity_rad(int motorID);
     
 private:
+    // --- 私有函式 (Private Methods) ---
+
+    // 狀態機內部使用的更新函式
     void updateHoming();
-    void updateWiggleTest(); // 宣告私有的更新函式
+    void updatePositionControl();
+    void updateWiggleTest();
+    
+    // 輔助函式
     void setAllMotorsIdle();
+    void sendAllCurrentsCommand(int16_t currents[NUM_ROBOT_MOTORS]);
 
+    // --- 成員變數 (Member Variables) ---
 
+    // 核心組件
     MotorController* motors;
     ControlMode mode;
     
-    // --- 機器人參數 ---
-    std::array<float, NUM_ROBOT_MOTORS> direction_multipliers; 
-    int16_t manual_current_commands[NUM_ROBOT_MOTORS];
+    // 機器人定義相關參數
+    std::array<float, NUM_ROBOT_MOTORS> direction_multipliers; // 馬達方向係數
 
-    // --- 歸零參數 ---
-    std::array<float, NUM_ROBOT_MOTORS> homing_directions;
-    std::array<float, NUM_ROBOT_MOTORS> homed_positions_rad;
-    std::array<bool, NUM_ROBOT_MOTORS> homed_axes;
-    std::array<bool, NUM_ROBOT_MOTORS> homing_axes;
-    float homing_velocity_rad_s;
+    // --- 歸零模式參數 ---
+    int homing_phase;
+    std::array<bool, NUM_ROBOT_MOTORS> homed_axes;      // 各軸是否已完成歸零
+    std::array<bool, NUM_ROBOT_MOTORS> homing_axes;     // 各軸是否正在歸零
+    std::array<float, NUM_ROBOT_MOTORS> homing_directions; // 歸零時的轉動方向
+    std::array<float, NUM_ROBOT_MOTORS> homed_positions_rad; // 歸零目標的機械角度 (弧度)
+    float homing_current_mA;
     float homing_current_threshold_mA;
-    int homing_phase; 
+
+    // --- 位置控制模式參數 ---
+    std::array<float, NUM_ROBOT_MOTORS> target_positions_rad; // 目標位置 (弧度)
+    // 位置控制的安全與調校參數
+    const float POS_CONTROL_KP = 20.0f;                      // P 控制器增益
+    const int16_t POS_CONTROL_MAX_CURRENT = 1500;            // 此模式下的最大電流 (mA)
+    const float POS_CONTROL_MAX_ERROR_RAD = 0.5f;            // ~30度, 位置誤差超過此值則觸發安全停機
+    const float POS_CONTROL_MAX_VELOCITY_RAD_S = 10.0f;      // rad/s, 速度超過此值則觸發安全停機
 
     // --- 擺動測試參數 ---
     int wiggle_motor_id;
@@ -64,14 +87,9 @@ private:
     float wiggle_frequency_hz;
     float wiggle_kp;
 
-    // 位置控制模式
-    void updatePositionControl();
-    float target_positions_rad[NUM_ROBOT_MOTORS];
-    float pos_kp, pos_kd; // P 和 D 控制器增益
-
-    // 發送所有馬達電流指令
-    void sendAllCurrentsCommand(int16_t currents[NUM_ROBOT_MOTORS]);
-
+    // --- 手動控制參數 ---
+    std::array<int16_t, NUM_ROBOT_MOTORS> manual_current_commands;
+    const int16_t MANUAL_MAX_CURRENT = 1000; // 手動模式最大電流 (mA)
 };
 
 #endif
