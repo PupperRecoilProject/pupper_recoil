@@ -103,6 +103,18 @@ void RobotController::update() {
     }
 }
 
+// 返回當前模式的字串描述
+const char* RobotController::getModeString() {
+    switch (mode) {
+        case ControlMode::IDLE: return "IDLE";
+        case ControlMode::HOMING: return "HOMING";
+        case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL";
+        case ControlMode::MANUAL_CONTROL: return "MANUAL_CONTROL";
+        case ControlMode::ERROR: return "ERROR";
+        default: return "UNKNOWN";
+    }
+}
+
 void RobotController::updateHoming() {
     int16_t command_currents[NUM_ROBOT_MOTORS] = {0};
 
@@ -142,6 +154,13 @@ void RobotController::updateHoming() {
 
     // TODO: 檢查 homing_phase 是否完成，並進入下一個 phase
     // if (homing_phase == 0 && knee_axes_all_homed) { ... }
+}
+
+bool RobotController::isHomed() {
+    for(bool homed : homed_axes) {
+        if (!homed) return false;
+    }
+    return true;
 }
 
 
@@ -193,13 +212,6 @@ void RobotController::updateWiggleTest() {
     sendAllCurrentsCommand(all_currents);
 }
 
-bool RobotController::isHomed() {
-    for(bool homed : homed_axes) {
-        if (!homed) return false;
-    }
-    return true;
-}
-
 // 切換到待機模式
 void RobotController::setIdle() {
     mode = ControlMode::IDLE;
@@ -244,18 +256,6 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
         Serial.printf("  Set motor %d current to %d.\n", motorID, manual_current_commands[motorID]);
     } else {
         Serial.println("  [ERROR] Invalid motor ID.");
-    }
-}
-
-// 返回當前模式的字串描述
-const char* RobotController::getModeString() {
-    switch (mode) {
-        case ControlMode::IDLE: return "IDLE";
-        case ControlMode::HOMING: return "HOMING";
-        case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL";
-        case ControlMode::ERROR: return "ERROR";
-        // case ControlMode::MANUAL: return "MANUAL_CONTROL";
-        default: return "UNKNOWN";
     }
 }
 
