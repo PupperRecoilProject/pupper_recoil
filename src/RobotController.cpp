@@ -242,7 +242,7 @@ void RobotController::updatePositionControl() {
         float current_pos = getMotorPosition_rad(i);
         float current_vel = getMotorVelocity_rad(i);
 
-        // --- 1. 安全檢查 ---
+        // --- 1. 安全檢查 (與之前相同) ---
         if (abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
             Serial.printf("!!! 安全停機 !!! 馬達 %d 速度 %.2f 超出限制 %.2f rad/s。\n", i, current_vel, POS_CONTROL_MAX_VELOCITY_RAD_S);
             setIdle();
@@ -257,16 +257,29 @@ void RobotController::updatePositionControl() {
             return;
         }
 
-        // --- 2. 計算 PD 反饋電流 ---
-        float p_term = POS_CONTROL_KP * pos_error;
-        float d_term = -POS_CONTROL_KD * current_vel;
-        float feedback_current = p_term + d_term;
+        // --- 2. 計算 PD 控制器的主驅動力 ---
+        // 這是控制的核心，現在它的輸出值會大得多。
+        float feedback_current = (POS_CONTROL_KP * pos_error) - (POS_CONTROL_KD * current_vel);
 
-        // --- 3. 計算動態前饋電流 ---
-        float feedforward_current = calculateFeedforward_mA(pos_error);
+        // --- 3. 判斷是否需要 "Kickstart" 啟動補償 ---
+        float friction_comp_current = 0; // 預設摩擦力補償為 0
 
-        // --- 4. 合併電流並限制總大小 ---
-        int16_t total_current = (int16_t)(feedback_current + feedforward_current);
+        // 條件一: 馬達需要移動 (誤差大於閾值)
+        bool needs_to_move = abs(pos_error) > KICKSTART_ERROR_THRESHOLD_RAD;
+        // 條件二: 馬達當前處於或接近靜止
+        bool is_stopped = abs(current_vel) < KICKSTART_VELOCITY_THRESHOLD_RAD_S;
+
+        // 如果需要移動且當前是靜止的
+        if (needs_to_move && is_stopped) {
+            // 給一個基礎的啟動電流，方向與誤差方向一致
+            friction_comp_current = copysignf(KICKSTART_CURRENT_mA, pos_error);
+        }
+
+        // --- 4. 合併電流 ---
+        // 總電流 = PD主驅動力 + (可能的)啟動補償
+        int16_t total_current = (int16_t)(feedback_current + friction_comp_current);
+        
+        // --- 5. 限制總電流大小 ---
         command_currents[i] = constrain(total_current, -POS_CONTROL_MAX_CURRENT, POS_CONTROL_MAX_CURRENT);
     }
     sendAllCurrentsCommand(command_currents);
@@ -297,23 +310,7 @@ void RobotController::updateWiggleTest() {
 //   私有: 輔助函式
 // =================================================================
 
-float RobotController::calculateFeedforward_mA(float pos_error) {
-    float abs_error = abs(pos_error);
 
-    // 如果誤差在過渡區間之外 (離目標很遠)
-    if (abs_error > FF_TRANSITION_ZONE_RAD) {
-        // 直接輸出飽和的最大前饋電流，方向由誤差符號決定
-        // copysignf(value, sign_source) -> 返回一個值，其大小為 value，符號為 sign_source
-        return copysignf(FF_MAX_CURRENT_mA, pos_error);
-    }
-    // 如果誤差在過渡區間之內 (正在靠近目標)
-    else {
-        // 計算一個從 1 到 0 的縮放比例
-        float scale = abs_error / FF_TRANSITION_ZONE_RAD;
-        // 輸出一個線性衰減的電流
-        return copysignf(FF_MAX_CURRENT_mA * scale, pos_error);
-    }
-}
 
 void RobotController::setAllMotorsIdle() {
     int16_t zero_currents[NUM_ROBOT_MOTORS] = {0};
