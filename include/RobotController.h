@@ -19,6 +19,7 @@ public:
         POSITION_CONTROL, // 位置控制模式
         WIGGLE_TEST,      // 擺動測試模式
         CURRENT_MANUAL_CONTROL,   // 手動電流控制模式
+        MANUAL_CALIBRATION, // *** 新增：手動校準模式 ***
         ERROR             // 錯誤模式
     };
 
@@ -35,10 +36,11 @@ public:
     void setTargetPosition_rad(int motorID, float angle_rad);
     void setSingleMotorCurrent(int motorID, int16_t current);
     void setIdle();
+    void performManualCalibration();     // 手動校準的觸發函式
 
     // --- 狀態與數據獲取函式 ---
     const char* getModeString();
-    bool isHomed();
+    bool isHomed(); // 這個函式現在的意義變為 "是否已校準"
     float getMotorPosition_rad(int motorID);
     float getMotorVelocity_rad(int motorID);
     
@@ -64,7 +66,13 @@ private:
     std::array<float, NUM_ROBOT_MOTORS> direction_multipliers; // 馬達方向係數
 
     // --- 歸零模式參數 ---
-    int homing_phase;
+    enum class HomingPhase {
+        KNEES,
+        HIPS,
+        ABDUCTIONS,
+        DONE
+    };
+    HomingPhase homing_phase;
     std::array<bool, NUM_ROBOT_MOTORS> is_joint_homed;
     std::array<bool, NUM_ROBOT_MOTORS> is_joint_homing_active;
     std::array<float, NUM_ROBOT_MOTORS> homing_directions;
@@ -72,19 +80,21 @@ private:
     float homing_current_mA;
     float homing_current_threshold_mA;
 
+    // 用於檢測歸零過程中的停滯 (stall) 狀態
+    std::array<unsigned long, NUM_ROBOT_MOTORS> homing_stall_start_time_ms;
+    const unsigned long HOMING_STALL_TIME_THRESHOLD_MS = 100; // 可以在這裡定義，或在 .cpp 中初始化
+
     // --- 位置控制模式參數 (高增益 PD + 啟動補償) ---
     std::array<float, NUM_ROBOT_MOTORS> target_positions_rad;
     const float POS_CONTROL_KP = 800.0f;                     // 高 P 增益，提供主要驅動力
     const float POS_CONTROL_KD = 16.0f;                      // 高 D 增益 (Kp/50)，提供穩定性
-    
     // 啟動補償 (Kickstart / Friction Compensation) 參數
     const int16_t KICKSTART_CURRENT_mA = 350;                // 啟動時的基礎電流
     const float KICKSTART_VELOCITY_THRESHOLD_RAD_S = 0.05f;  // 判定為 "靜止" 的速度閾值
     const float KICKSTART_ERROR_THRESHOLD_RAD = 0.02f;       // 需要啟動的最小誤差閾值
-    
     // 安全限制
     const int16_t POS_CONTROL_MAX_CURRENT = 2500;            // 適當提高總電流限制以容納高增益輸出
-    const float POS_CONTROL_MAX_ERROR_RAD = 0.5f;
+    const float POS_CONTROL_MAX_ERROR_RAD = 1.5f;
     const float POS_CONTROL_MAX_VELOCITY_RAD_S = 10.0f;
 
     // --- 擺動測試參數 ---
