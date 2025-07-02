@@ -66,6 +66,19 @@ void RobotController::update() {
 }
 
 // =================================================================
+//   手動校準參數
+// =================================================================
+// 定義手動校準時，機器人應該處於的姿態。
+// 這裡我們假設是一個所有關節角度都為 0 的 "零位姿態"。
+// 您可以根據您的機器人設計，將其修改為任何您選擇的、易於擺放的參考姿態。
+const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad = {
+    0.0f, -1.14f, -3.014f,  // Leg 0 (Front Right)
+    0.0f, 0.0f, 0.0f,  // Leg 1 (Front Left)
+    0.0f, 0.0f, 0.0f,  // Leg 2 (Rear Right)
+    0.0f, 0.0f, 0.0f   // Leg 3 (Rear Left)
+};
+
+// =================================================================
 //   高階指令函式 (由 main 呼叫)
 // =================================================================
 
@@ -364,6 +377,57 @@ void RobotController::updateWiggleTest() {
 
     // Wiggle Test 也是基於 "機器人座標系" 的誤差，因此 is_ideal=true
     sendCurrents(ideal_currents, true);
+}
+
+// =================================================================
+//   手動校準實現
+// =================================================================
+/**
+ * @brief 執行一次性的手動校準程序。
+ *
+ * 此函式假設使用者已經手動將機器人擺放到 `manual_calibration_pose_rad` 所定義的姿態。
+ * 它會讀取所有馬達的當前原始位置，計算並設置偏移量，從而完成校準。
+ * 為了安全，此操作只能在 IDLE 模式下執行。
+ */
+void RobotController::performManualCalibration() {
+    Serial.println("\n--- 開始手動校準程序 ---");
+
+    if (mode != ControlMode::IDLE) {
+        Serial.println("[錯誤] 校準失敗！機器人必須處於 IDLE 模式才能進行校準。");
+        Serial.println("請先發送 'stop' 指令，手動擺好姿態後再試一次。");
+        return;
+    }
+
+    Serial.println("正在讀取原始馬達角度並計算偏移量...");
+    Serial.println("(ID | Raw Pos (rad) | Target Pos (rad) | Offset (rad))");
+    Serial.println("---------------------------------------------------------");
+
+    for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        // 1. 讀取馬達的原始、未校準位置
+        float raw_pos_rad = motors->getRawPosition_rad(i);
+
+        // 2. 獲取此關節在校準姿態下的目標角度
+        float target_pos_rad = manual_calibration_pose_rad[i];
+
+        // 3. 核心計算：偏移量 = 原始讀數 - 期望讀數
+        float offset_rad_to_set = raw_pos_rad - target_pos_rad;
+
+        // 4. 將計算出的偏移量設定到底層馬達控制器
+        motors->setOffset_rad(i, offset_rad_to_set);
+
+        // 5. 打印日誌，方便除錯和確認
+        char buf[100];
+        snprintf(buf, sizeof(buf), "Motor %2d | %+14.4f | %+17.4f | %+13.4f",
+                 i, raw_pos_rad, target_pos_rad, offset_rad_to_set);
+        Serial.println(buf);
+    }
+
+    // 6. 將所有關節標記為已校準 (is_homed)
+    is_joint_homed.fill(true);
+
+    Serial.println("---------------------------------------------------------");
+    Serial.println("[成功] 所有馬達手動校準完成！偏移量已儲存。");
+    Serial.println("機器人現在已校準，可以接收 'pos' 或 'wiggle' 指令。\n");
 }
 
 // =================================================================
