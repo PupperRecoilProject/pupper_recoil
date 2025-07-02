@@ -12,8 +12,8 @@
 // 在這裡定義您手動擺放時，單一 "右腿" 的目標關節角度。
 // 這些值將被用來生成一個完整的、對稱的12關節姿態。
 const float HIP_JOINT_RAD       = 0.0f; // 髖關節 (左右擺動, Abduction/Adduction)
-const float UPPER_LEG_JOINT_RAD = -1.14f; // 大腿關節 (前後擺動, Hip Flexion/Extension)
-const float LOWER_LEG_JOINT_RAD = -3.014f; // 小腿關節 (膝蓋彎曲, Knee Flexion/Extension)
+const float UPPER_LEG_JOINT_RAD = -1.18f; // 大腿關節 (前後擺動, Hip Flexion/Extension)
+const float LOWER_LEG_JOINT_RAD = -2.68f; // 小腿關節 (膝蓋彎曲, Knee Flexion/Extension)
 
 // --- 步驟 2: 檢視完整的對稱姿態 ---
 // 這是根據上面的基礎角度和標準的四足對稱性生成的最終校準姿態。
