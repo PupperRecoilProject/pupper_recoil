@@ -65,15 +65,14 @@ void setup() {
     Serial.println("Commands (press Enter to execute):");
     Serial.println("  --- Calibration ---");
     Serial.println("  calibrate     - Perform manual calibration. Procedure:");
-    Serial.println("                  1. Make sure robot is in IDLE mode (use 'stop' if needed).");
-    Serial.println("                  2. Manually pose all joints to their zero position.");
+    Serial.println("                  1. Use 'stop' to enter IDLE mode.");
+    Serial.println("                  2. Manually pose all joints to the calibration pose.");
     Serial.println("                  3. Send this command to record offsets.");
-    Serial.println("  home          - Start automatic homing sequence (if implemented).");
     Serial.println("  --- High-level Control (requires calibration) ---");
-    Serial.println("  pos <id> <rad> - Set target position for one motor (e.g., 'pos 0 1.57').");
+    Serial.println("  pos <id> <rad> - Set target position for one motor.");
     Serial.println("  wiggle <id>   - Start wiggle test for a motor.");
     Serial.println("  --- Manual & Stop ---");
-    Serial.println("  motor <id> <mA> - Manually set current for one motor (e.g., 'motor 0 500').");
+    Serial.println("  motor <id> <mA> - Manually set current for one motor.");
     Serial.println("  stop          - Stop all motors and enter IDLE mode.");
     Serial.println("  reboot        - Reboot the microcontroller.");
 
@@ -171,11 +170,7 @@ void checkAndProcessSerial() {
  * @param command 從序列埠讀取到的字串指令
  */
 void handleSerialCommand(String command) {
-    if (command == "home") {
-        Serial.println("--> Command received: [home]");
-        myRobot.startHoming();
-        
-    } else if (command == "calibrate") {
+    if (command == "calibrate") {
         Serial.println("--> Command received: [calibrate]");
         myRobot.performManualCalibration();
 
@@ -244,6 +239,9 @@ void printRobotStatus() {
     Serial.print("Robot Mode: ");
     Serial.println(myRobot.getModeString());
 
+    // 校準狀態的顯示
+    Serial.print(" | Calibrated: ");
+    Serial.println(myRobot.isCalibrated() ? "YES" : "NO");
     snprintf(buf, sizeof(buf), "IMU Acc(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
     Serial.println(buf);
     snprintf(buf, sizeof(buf), "IMU Gyro(dps)-> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.gyroDPS[0], myIMU.gyroDPS[1], myIMU.gyroDPS[2]);

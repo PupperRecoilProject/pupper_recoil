@@ -66,12 +66,12 @@ DriveSystem::DriveSystem(uint8_t imu_cs_pin)
   ActuatorPositionVector homed_positions = {abduction_homed_position, hip_homed_position, knee_homed_position, abduction_homed_position, hip_homed_position, knee_homed_position,
                                            abduction_homed_position, hip_homed_position, knee_homed_position, abduction_homed_position, hip_homed_position, knee_homed_position};
   homed_positions_ = homed_positions;
-  std::array<bool, 12> is_joint_homed = {false, false, false, false, false, false, 
+  std::array<bool, 12> is_joint_calibrated = {false, false, false, false, false, false, 
                                     false, false, false, false, false, false};
-  homed_axes_ = is_joint_homed;
-  std::array<bool, 12> is_joint_homing_active = {false, false, false, false, false, false, 
+  homed_axes_ = is_joint_calibrated;
+  std::array<bool, 12> is_joint_calibrated_active = {false, false, false, false, false, false, 
                                     false, false, false, false, false, false};
-  homing_axes_ = is_joint_homing_active;
+  homing_axes_ = is_joint_calibrated_active;
   // homing_current_threshold = 5.0; // 舊的單一閾值
   homing_current_thresholds_.fill(5.0); // Homing 的閾值陣列
   homing_velocity = 0.0015;

@@ -15,11 +15,9 @@ public:
     // 機器人控制模式的枚舉 (enum)
     enum class ControlMode {
         IDLE,             // 待機模式
-        HOMING,           // 自動歸零模式
         POSITION_CONTROL, // 位置控制模式
         WIGGLE_TEST,      // 擺動測試模式
         CURRENT_MANUAL_CONTROL,   // 手動電流控制模式
-        MANUAL_CALIBRATION, // *** 新增：手動校準模式 ***
         ERROR             // 錯誤模式
     };
 
@@ -31,7 +29,6 @@ public:
     void update(); // 在高頻迴圈中被呼叫
 
     // --- 高階指令函式 (由 main 呼叫) ---
-    void startHoming();
     void startWiggleTest(int motorID);
     void setTargetPosition_rad(int motorID, float angle_rad);
     void setSingleMotorCurrent(int motorID, int16_t current);
@@ -40,7 +37,7 @@ public:
 
     // --- 狀態與數據獲取函式 ---
     const char* getModeString();
-    bool isHomed(); // 這個函式現在的意義變為 "是否已校準"
+    bool isCalibrated(); // 這個函式現在的意義變為 "是否已校準"
     float getMotorPosition_rad(int motorID);
     float getMotorVelocity_rad(int motorID);
     
@@ -48,10 +45,9 @@ private:
     // --- 私有函式 (Private Methods) ---
 
     // 狀態機內部使用的更新函式
-    void updateHoming();
     void updatePositionControl();
     void updateWiggleTest();
-    
+
     // 輔助函式
     void sendCurrents(int16_t currents[NUM_ROBOT_MOTORS], bool is_ideal); // 統一的指令出口
     void setAllMotorsIdle();
@@ -66,23 +62,8 @@ private:
     std::array<float, NUM_ROBOT_MOTORS> direction_multipliers; // 馬達方向係數
 
     // --- 歸零模式參數 ---
-    enum class HomingPhase {
-        KNEES,
-        HIPS,
-        ABDUCTIONS,
-        DONE
-    };
-    HomingPhase homing_phase;
-    std::array<bool, NUM_ROBOT_MOTORS> is_joint_homed;
-    std::array<bool, NUM_ROBOT_MOTORS> is_joint_homing_active;
-    std::array<float, NUM_ROBOT_MOTORS> homing_directions;
-    std::array<float, NUM_ROBOT_MOTORS> homed_positions_rad;
-    float homing_current_mA;
-    float homing_current_threshold_mA;
+    std::array<bool, NUM_ROBOT_MOTORS> is_joint_calibrated;
 
-    // 用於檢測歸零過程中的停滯 (stall) 狀態
-    std::array<unsigned long, NUM_ROBOT_MOTORS> homing_stall_start_time_ms;
-    const unsigned long HOMING_STALL_TIME_THRESHOLD_MS = 100; // 可以在這裡定義，或在 .cpp 中初始化
 
     // --- 位置控制模式參數 (高增益 PD + 啟動補償) ---
     std::array<float, NUM_ROBOT_MOTORS> target_positions_rad;
