@@ -115,20 +115,25 @@ void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) { /* ... */ return; }   // 在第一次切換到位置控制模式時，初始化所有目標位置
 
     // 在第一次切換到位置控制模式時，進行初始化。
-    // 通常情況下，我們是從 IDLE 模式切換過來的。
-    // 在 IDLE 模式下，target_positions_rad 已經被持續更新為當前位置，
-    // 因此這裡我們無需再次手動同步，只需切換模式並重置積分項即可。
     if (mode != ControlMode::POSITION_CONTROL) {
-        Serial.println("切換至 POSITION_CONTROL 模式。");
+        Serial.println("從 IDLE 切換至 POSITION_CONTROL 模式。");
+        Serial.println("凍結所有馬達在當前位置，僅更新目標馬達。");
+        
+        // << 新增的關鍵邏輯 >>
+        // 為了防止未被指令控制的馬達移動到它們舊的、可能為零的目標位置，
+        // 我們在切換模式的這一刻，將所有馬達的目標位置都刷新為它們的當前位置。
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
         mode = ControlMode::POSITION_CONTROL;
-        integral_error_rad_s.fill(0.0f); // 重置所有積分項，防止舊誤差影響新控制
+        integral_error_rad_s.fill(0.0f); // 重置所有積分項
     }
 
     // 然後再設定指定的目標
     target_positions_rad[motorID] = angle_rad;
 
-    // 當一個馬達被賦予新的目標位置時，也應該重置其對應的積分項。
-    // 這可以防止舊的累積誤差影響對新目標的響應，讓響應更乾淨。
+    // 重置該馬達的積分項，以獲得更乾淨的響應
     integral_error_rad_s[motorID] = 0.0f;
     
     Serial.printf("  設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
