@@ -70,19 +70,19 @@ private:
     std::array<float, NUM_ROBOT_MOTORS> target_positions_rad;
     std::array<float, NUM_ROBOT_MOTORS> integral_error_rad_s;   // 儲存每個馬達的積分誤差
     const float POS_CONTROL_KP = 1000.0f;                       // 高 P 增益，提供主要驅動力
-    const float POS_CONTROL_KD = 50.0f;                         // 高 D 增益 (Kp/50)，提供穩定性
-    const float POS_CONTROL_KI = 0.0f;                        // << 新增：I 增益 (初始值，之後要調整)
+    const float POS_CONTROL_KD = 20.0f;                         // 高 D 增益 (Kp/50)，提供穩定性
+    const float POS_CONTROL_KI = 1500.0f;                        // << 新增：I 增益 (初始值，之後要調整)
 
     // 啟動補償 (Kickstart / Friction Compensation) 參數
     const int16_t FRICTION_STATIC_COMP_mA = 350;            // 啟動時的基礎電流
-    const int16_t FRICTION_KINETIC_COMP_mA = 200;           // 動摩擦補償，用於補償馬達在運動中的持續摩擦損耗
+    const int16_t FRICTION_KINETIC_COMP_mA = 0;           // 動摩擦補償，用於補償馬達在運動中的持續摩擦損耗
     const float FRICTION_VEL_THRESHOLD_RAD_S = 0.05f;       // 判定為 "靜止" 的速度閾值
     const float FRICTION_ERR_THRESHOLD_RAD = 0.02f;         // 需要啟動的最小誤差閾值
     // 安全限制
     const int16_t POS_CONTROL_MAX_CURRENT = 2500;            // 適當提高總電流限制以容納高增益輸出
     const float POS_CONTROL_MAX_ERROR_RAD = 1.5f;
     const float POS_CONTROL_MAX_VELOCITY_RAD_S = 10.0f;
-    const float INTEGRAL_MAX_CURRENT_mA = 0.0f;           // 積分飽和保護 (Integral Windup Protection)
+    const float INTEGRAL_MAX_CURRENT_mA = 1500.0f;           // 積分飽和保護 (Integral Windup Protection)
 
     // --- 擺動測試參數 ---
     int wiggle_motor_id;

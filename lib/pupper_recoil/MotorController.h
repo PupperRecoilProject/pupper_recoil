@@ -37,7 +37,7 @@ private:
     C610Bus<CAN1> bus1;
     C610Bus<CAN2> bus2;
     float _offsets_rad[TOTAL_MOTORS];
-    const int16_t ABSOLUTE_MAX_CURRENT_mA = 1500; // 在 MotorController 內部定義安全限制 1000ma
+    const int16_t ABSOLUTE_MAX_CURRENT_mA = 2000; // 在 MotorController 內部定義安全限制 1000ma 逐步調高
 
 };
 
