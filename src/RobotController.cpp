@@ -57,6 +57,7 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
                              -1, -1,  1};
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
+    integral_error_rad_s.fill(0.0f);
 }
 
 void RobotController::begin() {
@@ -115,6 +116,8 @@ void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
     if (mode != ControlMode::POSITION_CONTROL) {
         Serial.println("切換至 POSITION_CONTROL 模式。");
         // 先不要 setIdle()，因為它會立即發送零電流
+
+        integral_error_rad_s.fill(0.0f); // 重置所有積分項
         // 在切換的瞬間，將所有目標位置設為當前位置，以防止跳動
         for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
             target_positions_rad[i] = getMotorPosition_rad(i);
@@ -124,6 +127,11 @@ void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
     
     // 然後再設定指定的目標
     target_positions_rad[motorID] = angle_rad;
+
+    // 當一個馬達被賦予新的目標位置時，也應該重置其對應的積分項。
+    // 這可以防止舊的累積誤差影響對新目標的響應，讓響應更乾淨。
+    integral_error_rad_s[motorID] = 0.0f;
+    
     Serial.printf("  設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
 }
 
@@ -145,6 +153,7 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
 void RobotController::setIdle() {
     mode = ControlMode::IDLE;
     manual_current_commands.fill(0);
+    integral_error_rad_s.fill(0.0f);
     for (int i=0; i<NUM_ROBOT_MOTORS; ++i) {
         target_positions_rad[i] = getMotorPosition_rad(i);
     }
@@ -178,6 +187,9 @@ float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 .
 
 void RobotController::updatePositionControl() {
     int16_t ideal_currents[NUM_ROBOT_MOTORS] = {0};
+    // 獲取控制週期的時間間隔 (秒)
+    // 您的 CONTROL_FREQUENCY_HZ 是 1000，所以 dt 是 0.001
+    const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H; 
 
     for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
         float current_pos = getMotorPosition_rad(i);
@@ -195,12 +207,35 @@ void RobotController::updatePositionControl() {
             setIdle(); return;
         }
 
-        float feedback_current = (POS_CONTROL_KP * pos_error) - (POS_CONTROL_KD * current_vel);
+        // --- 核心 PID 計算 ---
+        integral_error_rad_s[i] += pos_error * dt;
+        float p_term = POS_CONTROL_KP * pos_error;
+        float i_term = POS_CONTROL_KI * integral_error_rad_s[i];
+        float d_term = -POS_CONTROL_KD * current_vel;
+        integral_error_rad_s[i] = constrain(integral_error_rad_s[i], -INTEGRAL_MAX_CURRENT_mA, INTEGRAL_MAX_CURRENT_mA);
+        if ( (i_term >= INTEGRAL_MAX_CURRENT_mA && pos_error > 0) ||
+             (i_term <= -INTEGRAL_MAX_CURRENT_mA && pos_error < 0) )
+        {
+             // 積分已飽和且誤差方向會使其更飽和，所以不再累加
+             integral_error_rad_s[i] -= pos_error * dt; // 撤銷本次的累加
+        }
+        
+        // 總回饋電流
+        float feedback_current = p_term + i_term + d_term;
+
+        // --- 摩擦力補償 ---
         float friction_comp_current = 0;
 
-        if (abs(pos_error) > KICKSTART_ERROR_THRESHOLD_RAD && abs(current_vel) < KICKSTART_VELOCITY_THRESHOLD_RAD_S) {
-            friction_comp_current = copysignf(KICKSTART_CURRENT_mA, pos_error);
+        if (abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
+            // 狀態 1: 需要克服靜摩擦力 (Kickstart)
+            // 使用 feedback_current 的方向來決定啟動力的方向，因為此時速度可能為零。
+            friction_comp_current = copysignf(FRICTION_STATIC_COMP_mA, feedback_current);
+        } else {
+            // 狀態 2: 已經在運動，補償動摩擦力
+            // 使用 current_vel 的方向來決定補償力的方向。
+            friction_comp_current = copysignf(FRICTION_KINETIC_COMP_mA, current_vel);
         }
+
 
         ideal_currents[i] = (int16_t)(feedback_current + friction_comp_current);
     }
