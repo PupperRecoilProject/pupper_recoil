@@ -58,6 +58,7 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
     integral_error_rad_s.fill(0.0f);
+    is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
 }
 
 void RobotController::begin() {
@@ -111,20 +112,18 @@ void RobotController::startWiggleTest(int motorID) {
 }
 
 void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
-    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) { /* ... */ return; }
-        // 在第一次切換到位置控制模式時，初始化所有目標位置
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) { /* ... */ return; }   // 在第一次切換到位置控制模式時，初始化所有目標位置
+
+    // 在第一次切換到位置控制模式時，進行初始化。
+    // 通常情況下，我們是從 IDLE 模式切換過來的。
+    // 在 IDLE 模式下，target_positions_rad 已經被持續更新為當前位置，
+    // 因此這裡我們無需再次手動同步，只需切換模式並重置積分項即可。
     if (mode != ControlMode::POSITION_CONTROL) {
         Serial.println("切換至 POSITION_CONTROL 模式。");
-        // 先不要 setIdle()，因為它會立即發送零電流
-
-        integral_error_rad_s.fill(0.0f); // 重置所有積分項
-        // 在切換的瞬間，將所有目標位置設為當前位置，以防止跳動
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
         mode = ControlMode::POSITION_CONTROL;
+        integral_error_rad_s.fill(0.0f); // 重置所有積分項，防止舊誤差影響新控制
     }
-    
+
     // 然後再設定指定的目標
     target_positions_rad[motorID] = angle_rad;
 
@@ -212,12 +211,17 @@ void RobotController::updatePositionControl() {
         float p_term = POS_CONTROL_KP * pos_error;
         float i_term = POS_CONTROL_KI * integral_error_rad_s[i];
         float d_term = -POS_CONTROL_KD * current_vel;
-        integral_error_rad_s[i] = constrain(integral_error_rad_s[i], -INTEGRAL_MAX_CURRENT_mA, INTEGRAL_MAX_CURRENT_mA);
+
+        // --- 積分抗飽和 (Integral Anti-Windup) ---
+        integral_error_rad_s[i] = constrain(integral_error_rad_s[i], -INTEGRAL_MAX_CURRENT_mA / POS_CONTROL_KI, INTEGRAL_MAX_CURRENT_mA / POS_CONTROL_KI);
+
+        // 條件性積分。
         if ( (i_term >= INTEGRAL_MAX_CURRENT_mA && pos_error > 0) ||
              (i_term <= -INTEGRAL_MAX_CURRENT_mA && pos_error < 0) )
         {
-             // 積分已飽和且誤差方向會使其更飽和，所以不再累加
-             integral_error_rad_s[i] -= pos_error * dt; // 撤銷本次的累加
+             // 條件不滿足，不進行積分累加。
+             // 因為前面已經加過了，所以這裡減掉來撤銷操作。
+             integral_error_rad_s[i] -= pos_error * dt;
         }
         
         // 總回饋電流
@@ -279,6 +283,14 @@ void RobotController::performManualCalibration() {
         Serial.println("[錯誤] 校準失敗！機器人必須處於 IDLE 模式才能進行校準。");
         Serial.println("請先發送 'stop' 指令，手動擺好姿態後再試一次。");
         return;
+    }
+
+    // 為了確保每次校準都是從一個已知的乾淨狀態開始，
+    // 我們首先將所有馬達的現有偏移量重置為零。
+    // 這可以防止因重複執行校準而導致的偏移量錯誤疊加。
+    Serial.println("正在重置現有偏移量...");
+    for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        motors->setOffset_rad(i, 0.0f);
     }
 
     Serial.println("正在讀取原始馬達角度並計算偏移量...");
