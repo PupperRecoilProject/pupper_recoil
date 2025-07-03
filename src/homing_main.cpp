@@ -70,6 +70,7 @@ void setup() {
     Serial.println("                  3. Send this command to record offsets.");
     Serial.println("  --- High-level Control (requires calibration) ---");
     Serial.println("  pos <id> <rad> - Set target position for one motor.");
+    Serial.println("  grouppos <group> <rad> - Set target for a joint group (hip, upper, lower).");
     Serial.println("  wiggle <id>   - Start wiggle test for a motor.");
     Serial.println("  --- Manual & Stop ---");
     Serial.println("  motor <id> <mA> - Manually set current for one motor.");
@@ -188,6 +189,41 @@ void handleSerialCommand(String command) {
             myRobot.setTargetPosition_rad(motorID, angle_rad);
         } else {
             Serial.println("  [ERROR] Invalid format. Use 'pos <id> <angle_in_radians>'.");
+        }
+    
+    } else if (command.startsWith("grouppos ")) {
+        Serial.print("--> Command received: [");
+        Serial.print(command);
+        Serial.println("]");
+    
+        int space1 = command.indexOf(' ');
+        int space2 = command.indexOf(' ', space1 + 1);
+
+        if (space1 != -1 && space2 != -1) {
+            String group_str = command.substring(space1 + 1, space2);
+            float angle_rad = command.substring(space2 + 1).toFloat();
+
+            RobotController::JointGroup group;
+            bool valid_group = true;
+
+            group_str.toLowerCase(); // 將組名轉為小寫，讓指令不分大小寫
+
+            if (group_str == "hip") {
+                group = RobotController::JointGroup::HIP;
+            } else if (group_str == "upper") {
+                group = RobotController::JointGroup::UPPER;
+            } else if (group_str == "lower") {
+                group = RobotController::JointGroup::LOWER;
+            } else {
+                valid_group = false;
+                Serial.println("  [ERROR] Invalid group. Use 'hip', 'upper', or 'lower'.");
+            }
+
+            if (valid_group) {
+                myRobot.setJointGroupPosition_rad(group, angle_rad);
+            }
+        } else {
+            Serial.println("  [ERROR] Invalid format. Use 'grouppos <group> <angle_in_radians>'.");
         }
         
     } else if (command.startsWith("wiggle ")) {

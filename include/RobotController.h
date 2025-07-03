@@ -21,6 +21,12 @@ public:
         CURRENT_MANUAL_CONTROL,   // 手動電流控制模式
         ERROR             // 錯誤模式
     };
+    // 用於分組控制的關節類型枚舉
+    enum class JointGroup {
+        HIP,   // 髖關節 (左右擺動)
+        UPPER, // 大腿關節 (前後擺動)
+        LOWER  // 小腿關節 (膝蓋彎曲)
+    };
 
     // 構造函式
     RobotController(MotorController* motor_ctrl);
@@ -35,6 +41,9 @@ public:
     void setSingleMotorCurrent(int motorID, int16_t current);
     void setIdle();
     void performManualCalibration();     // 手動校準的觸發函式
+
+    // 按關節類型分組設定目標角度
+    void setJointGroupPosition_rad(JointGroup group, float angle_rad);
 
     // --- 狀態與數據獲取函式 ---
     const char* getModeString();

@@ -165,6 +165,59 @@ void RobotController::setIdle() {
     Serial.println("機器人控制器已設為 IDLE 模式 (所有狀態已重置)。");
 }
 
+void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_rad) {
+    // 檢查機器人是否已校準，這是安全執行姿態控制的前提
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 分組控制失敗：機器人必須先校準！");
+        return;
+    }
+
+    // 在第一次進入位置控制模式時，進行必要的初始化
+    if (mode != ControlMode::POSITION_CONTROL) {
+        Serial.println("切換至 POSITION_CONTROL 模式，準備進行分組控制。");
+        
+        // 關鍵步驟：將所有馬達的目標位置凍結在當前位置，防止未被控制的馬達亂動
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
+        mode = ControlMode::POSITION_CONTROL;
+        // 從非位置模式首次進入時，清除所有積分項，以一個乾淨的狀態開始
+        integral_error_rad_s.fill(0.0f);
+    }
+
+    int start_index = -1;
+    const char* group_name = "UNKNOWN";
+
+    // 根據選擇的組別，確定要操作的馬達索引的起始值
+    switch(group) {
+        case JointGroup::HIP:
+            start_index = 0; // 馬達ID 0, 3, 6, 9
+            group_name = "HIP";
+            break;
+        case JointGroup::UPPER:
+            start_index = 1; // 馬達ID 1, 4, 7, 10
+            group_name = "UPPER";
+            break;
+        case JointGroup::LOWER:
+            start_index = 2; // 馬達ID 2, 5, 8, 11
+            group_name = "LOWER";
+            break;
+    }
+    
+    Serial.printf("--> 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
+
+    if (start_index != -1) {
+        // 使用一個迴圈，步長為3，來更新屬於同一組的所有馬達的目標位置
+        for (int i = start_index; i < NUM_ROBOT_MOTORS; i += 3) {
+            target_positions_rad[i] = angle_rad;
+        }
+    } else {
+        Serial.println("[錯誤] 無效的關節組別。");
+    }
+}
+
+
 // =================================================================
 //   狀態與數據獲取函式
 // =================================================================
