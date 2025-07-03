@@ -134,7 +134,7 @@ void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
     target_positions_rad[motorID] = angle_rad;
 
     // 重置該馬達的積分項，以獲得更乾淨的響應
-    integral_error_rad_s[motorID] = 0.0f;
+    // integral_error_rad_s[motorID] = 0.0f; // 先移除，讓附載的運動更平滑
     
     Serial.printf("  設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
 }
