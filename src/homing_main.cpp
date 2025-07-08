@@ -23,6 +23,9 @@ const int PRINT_FREQUENCY_HZ = 2;
 const long PRINT_INTERVAL_MILLIS = 1000 / PRINT_FREQUENCY_HZ;
 long last_print_time_millis = 0;
 
+// 用於控制是否打印額外數據的旗標
+bool g_enable_extra_prints = false;
+
 // =================================================================
 // --- 新的、可靠的序列埠指令讀取邏輯 ---
 // =================================================================
@@ -76,6 +79,9 @@ void setup() {
     Serial.println("  motor <id> <mA> - Manually set current for one motor.");
     Serial.println("  stop          - Stop all motors and enter IDLE mode.");
     Serial.println("  reboot        - Reboot the microcontroller.");
+    Serial.println("  --- Debugging ---");
+    Serial.println("  printon       - Enable printing of motor current data.");
+    Serial.println("  printoff      - Disable printing of motor current data.");
 
     Serial.println("========================================\n");
     
@@ -251,6 +257,14 @@ void handleSerialCommand(String command) {
         Serial.println("--> Command received: [stop]");
         myRobot.setIdle();
 
+    } else if (command == "printon") {
+        Serial.println("--> Command received: [printon]. Enabling extra data printing.");
+        g_enable_extra_prints = true;
+
+    } else if (command == "printoff") {
+        Serial.println("--> Command received: [printoff]. Disabling extra data printing.");
+        g_enable_extra_prints = false;
+
     } else if (command == "reboot") {
         Serial.println("--> Command received: [reboot]. Rebooting now...");
         delay(100);
@@ -268,7 +282,7 @@ void handleSerialCommand(String command) {
  * @brief 打印所有相關的狀態和數據到序列埠 (此函式內容不變)
  */
 void printRobotStatus() {
-    char buf[100];
+    char buf[120];
 
     Serial.println("---------------- ROBOT STATUS ----------------");
 
@@ -293,5 +307,31 @@ void printRobotStatus() {
         snprintf(buf, sizeof(buf), "Motor %2d | Pos: %+9.4f | Vel: %+9.4f | Offset: %+9.4f", i, pos_rad, vel_rad, offset_rad);
         Serial.println(buf);
     }
+
+    if (g_enable_extra_prints) {
+        Serial.println("---");
+        // 修改標題以容納更多數據
+        Serial.println("Currents & Torque (ID | Target (mA) | Actual (mA) | Actual (A) | Torque (Nm))");
+        for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+            // 獲取所有相關數據
+            int16_t target_current_mA = myRobot.getTargetCurrent_mA(i);
+            // *** 修正：呼叫新的、正確的函式名 ***
+            int16_t actual_current_mA = myMotorControl.getRawCurrent_mA(i);
+            // *** 新增：獲取安培和扭矩 ***
+            float   actual_current_A  = myMotorControl.getCurrent_A(i);
+            float   torque_Nm         = myMotorControl.getTorque_Nm(i);
+
+            // 使用 snprintf 格式化輸出
+            snprintf(buf, sizeof(buf), "Motor %2d | Tgt: %-8d | Act: %-8d | Act: %+7.3f | Torque: %+8.4f", 
+                     i, 
+                     target_current_mA, 
+                     actual_current_mA, 
+                     actual_current_A, 
+                     torque_Nm);
+            Serial.println(buf);
+        }
+    }
+
+
     Serial.println("================================================\n");
 }

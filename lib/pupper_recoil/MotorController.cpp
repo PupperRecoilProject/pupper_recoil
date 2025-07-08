@@ -61,14 +61,36 @@ float MotorController::getRawVelocity_rad(int motorID) {
     return 0.0f;
 }
 
-//@brief 獲取馬達回傳的實際電流 (單位：mA)
-int16_t MotorController::getRawCurrent(int motorID) {
+// 實現 getRawCurrent_mA()，這是對您原有 getRawCurrent() 的正確修復
+int16_t MotorController::getRawCurrent_mA(int motorID) {
+    float current_A = 0.0f;
     if (motorID >= 0 && motorID < NUM_MOTORS_PER_BUS) {
-        return bus1.Get(motorID).Current();
+        current_A = bus1.Get(motorID).Current(); // 這裡得到的是安培 (float)
+    } else if (motorID >= NUM_MOTORS_PER_BUS && motorID < TOTAL_MOTORS) {
+        current_A = bus2.Get(motorID - NUM_MOTORS_PER_BUS).Current(); // 這裡得到的是安培 (float)
+    }
+    // 將安培值乘以1000，然後安全地轉換為 int16_t，得到毫安培值
+    return static_cast<int16_t>(current_A * 1000.0f);
+}
+
+// 實現 getCurrent_A()
+float MotorController::getCurrent_A(int motorID) {
+    if (motorID >= 0 && motorID < NUM_MOTORS_PER_BUS) {
+        return bus1.Get(motorID).Current(); // 直接回傳安培 (float)
     } else if (motorID >= NUM_MOTORS_PER_BUS && motorID < TOTAL_MOTORS) {
         return bus2.Get(motorID - NUM_MOTORS_PER_BUS).Current();
     }
-    return 0;
+    return 0.0f;
+}
+
+// 實現 getTorque_Nm()
+float MotorController::getTorque_Nm(int motorID) {
+    if (motorID >= 0 && motorID < NUM_MOTORS_PER_BUS) {
+        return bus1.Get(motorID).Torque();
+    } else if (motorID >= NUM_MOTORS_PER_BUS && motorID < TOTAL_MOTORS) {
+        return bus2.Get(motorID - NUM_MOTORS_PER_BUS).Torque();
+    }
+    return 0.0f;
 }
 
 

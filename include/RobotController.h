@@ -50,7 +50,8 @@ public:
     bool isCalibrated(); // 這個函式現在的意義變為 "是否已校準"
     float getMotorPosition_rad(int motorID);
     float getMotorVelocity_rad(int motorID);
-    
+    int16_t getTargetCurrent_mA(int motorID);   // 獲取上一個控制週期計算出的目標電流 (mA)
+
 private:
     // --- 私有函式 (Private Methods) ---
 
@@ -78,9 +79,9 @@ private:
     // --- 位置控制模式參數 (高增益 PD + 啟動補償) ---
     std::array<float, NUM_ROBOT_MOTORS> target_positions_rad;
     std::array<float, NUM_ROBOT_MOTORS> integral_error_rad_s;   // 儲存每個馬達的積分誤差
-    const float POS_CONTROL_KP = 1000.0f;                       // 高 P 增益，提供主要驅動力
-    const float POS_CONTROL_KD = 30.0f;                         // 高 D 增益 (Kp/50)，提供穩定性
-    const float POS_CONTROL_KI = 1500.0f;                        // << 新增：I 增益 (初始值，之後要調整)
+    const float POS_CONTROL_KP = 3000.0f;                       // 高 P 增益，提供主要驅動力 1000
+    const float POS_CONTROL_KD = 90.0f;                         // 高 D 增益 (Kp/50)，提供穩定性 30
+    const float POS_CONTROL_KI = 3000.0f;                        // << 新增：I 增益 (初始值，之後要調整) 1500
 
     // 啟動補償 (Kickstart / Friction Compensation) 參數
     const int16_t FRICTION_STATIC_COMP_mA = 350;            // 啟動時的基礎電流
@@ -88,10 +89,10 @@ private:
     const float FRICTION_VEL_THRESHOLD_RAD_S = 0.05f;       // 判定為 "靜止" 的速度閾值
     const float FRICTION_ERR_THRESHOLD_RAD = 0.02f;         // 需要啟動的最小誤差閾值
     // 安全限制
-    const int16_t POS_CONTROL_MAX_CURRENT = 2500;            // 適當提高總電流限制以容納高增益輸出
+    const int16_t POS_CONTROL_MAX_CURRENT = 3000;            // 適當提高總電流限制以容納高增益輸出
     const float POS_CONTROL_MAX_ERROR_RAD = 2.5f;
-    const float POS_CONTROL_MAX_VELOCITY_RAD_S = 10.0f;
-    const float INTEGRAL_MAX_CURRENT_mA = 1500.0f;           // 積分飽和保護 (Integral Windup Protection)
+    const float POS_CONTROL_MAX_VELOCITY_RAD_S = 15.0f;
+    const float INTEGRAL_MAX_CURRENT_mA = 2000.0f;           // 積分飽和保護 (Integral Windup Protection)
 
     // --- 擺動測試參數 ---
     int wiggle_motor_id;
@@ -103,6 +104,10 @@ private:
     // --- 手動控制參數 ---
     std::array<int16_t, NUM_ROBOT_MOTORS> manual_current_commands;
     const int16_t MANUAL_MAX_CURRENT = 1000;
+
+    // 將 ideal_currents 移到成員變數區域，以便在 update() 之外也能訪問
+    std::array<int16_t, NUM_ROBOT_MOTORS> _target_currents_mA;
+
 };
 
 #endif

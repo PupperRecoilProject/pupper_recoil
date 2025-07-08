@@ -58,6 +58,7 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
     integral_error_rad_s.fill(0.0f);
+    _target_currents_mA.fill(0);
     is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
 }
 
@@ -243,7 +244,6 @@ float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 .
 
 
 void RobotController::updatePositionControl() {
-    int16_t ideal_currents[NUM_ROBOT_MOTORS] = {0};
     // 獲取控制週期的時間間隔 (秒)
     // 您的 CONTROL_FREQUENCY_HZ 是 1000，所以 dt 是 0.001
     const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H; 
@@ -299,15 +299,15 @@ void RobotController::updatePositionControl() {
         }
 
 
-        ideal_currents[i] = (int16_t)(feedback_current + friction_comp_current);
+        _target_currents_mA[i] = (int16_t)(feedback_current + friction_comp_current);
     }
 
     // 位置控制計算的是理想電流，因此 is_ideal=true
-    sendCurrents(ideal_currents, true);
+    sendCurrents(_target_currents_mA.data(), true);
 }
 
 void RobotController::updateWiggleTest() {
-    int16_t ideal_currents[NUM_ROBOT_MOTORS] = {0};
+    _target_currents_mA.fill(0);
     
     float current_pos_rad = getMotorPosition_rad(wiggle_motor_id);
     float error_rad = (wiggle_center_pos_rad + wiggle_amplitude_rad * sin(millis() / 1000.0f * 2.0f * PI * wiggle_frequency_hz)) - current_pos_rad;
@@ -318,10 +318,10 @@ void RobotController::updateWiggleTest() {
     }
 
     int16_t ideal_command_current = (int16_t)(wiggle_kp * error_rad);
-    ideal_currents[wiggle_motor_id] = ideal_command_current;
+    _target_currents_mA[wiggle_motor_id] = ideal_command_current;
 
     // Wiggle Test 也是基於 "機器人座標系" 的誤差，因此 is_ideal=true
-    sendCurrents(ideal_currents, true);
+    sendCurrents(_target_currents_mA.data(), true);
 }
 
 // =================================================================
@@ -421,4 +421,11 @@ void RobotController::sendCurrents(int16_t currents[NUM_ROBOT_MOTORS], bool is_i
         mode = ControlMode::ERROR;
         Serial.println("!!! RobotController 因硬體層錯誤而進入 ERROR 狀態 !!!");
     }
+}
+
+int16_t RobotController::getTargetCurrent_mA(int motorID) {
+    if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
+        return _target_currents_mA[motorID];
+    }
+    return 0;
 }

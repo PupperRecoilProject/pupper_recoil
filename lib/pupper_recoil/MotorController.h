@@ -25,12 +25,19 @@ public:
     // 新增：獲取未經校準的原始數據
     float getRawPosition_rad(int motorID);
     float getRawVelocity_rad(int motorID);
-    int16_t getRawCurrent(int motorID);
+    // @brief 獲取馬達回傳的原始電流值
+    // @return int16_t 電流值，單位為毫安培 (mA)
+    int16_t getRawCurrent_mA(int motorID);
+    // @brief 獲取馬達的估計電流
+    // @return float 電流值，單位為安培 (A)
+    float getCurrent_A(int motorID);
+    // @brief 獲取馬達的估計輸出扭矩
+    // @return float 扭矩值，單位為牛頓米 (Nm)
+    float getTorque_Nm(int motorID);
 
+    // 控制與設定
     bool setAllCurrents(int16_t currents[TOTAL_MOTORS]); // 修改 setAllCurrents 的返回類型，讓它可以報告狀態。返回 true 表示成功，返回 false 表示發生嚴重錯誤並已停機
     void setOffset_rad(int motorID, float offset);
-
-    // 將 getOffset_rad 移動到這裡
     float getOffset_rad(int motorID); // 新增：讓外部可以讀取偏移量
 
 private:
