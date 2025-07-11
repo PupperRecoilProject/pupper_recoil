@@ -8,6 +8,7 @@ public:
     // --- 公開變數 ---
     float roll, pitch, yaw;           // 姿態角 (度)
     float linearAccel[3];             // [x, y, z] 線性加速度 (g)
+    float velocity[3];                // [x, y, z] 估算的線速度 (m/s)
     float quaternion[4];              // [w, x, y, z] 姿態四元數
 
 public:
@@ -29,15 +30,18 @@ public:
      * @param az 加速度計 Z 軸數據 (單位: g)
      */
     void update(float gx, float gy, float gz, float ax, float ay, float az);
+    void resetVelocity(); // <<< 新增：一個可以重置速度估計的函式
 
-private:
+    private:
     // --- 私有成員 ---
     Mahony _filter; // 內嵌一個 Mahony 濾波器物件
+    float _dt; // <<< 新增：儲存每次更新的時間間隔 (秒)
 
     // --- 私有函式 ---
 
     // 根據最新的四元數計算線性加速度
     void calculateLinearAcceleration(float ax, float ay, float az);
+    void estimateVelocity(); // <<< 新增：估算速度的函式
 };
 
 #endif // AHRS_H

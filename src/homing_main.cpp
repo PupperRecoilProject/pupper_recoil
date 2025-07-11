@@ -277,6 +277,10 @@ void handleSerialCommand(String command) {
         SCB_AIRCR = 0x05FA0004;
         #endif
 
+    } else if (command == "resetvel") {
+    Serial.println("--> Command received: [resetvel]. Resetting velocity estimation.");
+    myAHRS.resetVelocity();
+
     } else {
         Serial.print("  [ERROR] Unknown command: ");
         Serial.println(command);
@@ -300,6 +304,8 @@ void printRobotStatus() {
     snprintf(buf, sizeof(buf), "AHRS Attitude -> Roll:%+7.2f Pitch:%+7.2f Yaw:%+7.2f", myAHRS.roll, myAHRS.pitch, myAHRS.yaw);
     Serial.println(buf);
     snprintf(buf, sizeof(buf), "Linear Accel(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myAHRS.linearAccel[0], myAHRS.linearAccel[1], myAHRS.linearAccel[2]);
+    Serial.println(buf);
+    snprintf(buf, sizeof(buf), "Est. Velocity(m/s) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myAHRS.velocity[0], myAHRS.velocity[1], myAHRS.velocity[2]);
     Serial.println(buf);
     snprintf(buf, sizeof(buf), "IMU Acc(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
     Serial.println(buf);

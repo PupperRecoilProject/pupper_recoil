@@ -1,6 +1,8 @@
 #include "AHRS.h"
 #include <Arduino.h> // 為了使用 DEG_TO_RAD
 
+const float G_ACCEL = 9.80665f;
+
 SimpleAHRS::SimpleAHRS() {
     // 初始化所有公開變數為 0
     roll = 0.0f;
@@ -8,15 +10,27 @@ SimpleAHRS::SimpleAHRS() {
     yaw = 0.0f;
     for (int i = 0; i < 3; i++) {
         linearAccel[i] = 0.0f;
+        velocity[i] = 0.0f; // <<< 新增：初始化速度
     }
     for (int i = 0; i < 4; i++) {
         quaternion[i] = 0.0f;
+        _dt = 0.0f; // <<< 新增：初始化時間間隔
     }
     quaternion[0] = 1.0f; // 四元數的實部 w 初始化為 1
 }
 
 void SimpleAHRS::begin(float sample_freq_hz) {
     _filter.begin(sample_freq_hz);
+    if (sample_freq_hz > 0) {       // <<< 新增：根據頻率計算 dt
+        _dt = 1.0f / sample_freq_hz; 
+    }
+}
+
+// <<< 新增：重置速度的函式 >>>
+void SimpleAHRS::resetVelocity() {
+    for (int i = 0; i < 3; i++) {
+        velocity[i] = 0.0f;
+    }
 }
 
 void SimpleAHRS::update(float gx, float gy, float gz, float ax, float ay, float az) {
@@ -32,6 +46,9 @@ void SimpleAHRS::update(float gx, float gy, float gz, float ax, float ay, float 
 
     // 3. 計算線性加速度
     calculateLinearAcceleration(ax, ay, az);
+
+     // 4. 估算線速度 <<< 新增
+    estimateVelocity();
 }
 
 void SimpleAHRS::calculateLinearAcceleration(float ax, float ay, float az) {
@@ -52,4 +69,15 @@ void SimpleAHRS::calculateLinearAcceleration(float ax, float ay, float az) {
     linearAccel[0] = ax - gravity_x;
     linearAccel[1] = ay - gravity_y;
     linearAccel[2] = az - gravity_z;
+}
+
+// <<< 新增：實現速度估算函式 >>>
+void SimpleAHRS::estimateVelocity() {
+    if (_dt > 0) {
+        // 積分：速度變化量 = 線性加速度 * 時間間隔
+        // 注意單位轉換：linearAccel 的單位是 g，需要乘以 G_ACCEL 換算成 m/s^2
+        velocity[0] += linearAccel[0] * G_ACCEL * _dt;
+        velocity[1] += linearAccel[1] * G_ACCEL * _dt;
+        velocity[2] += linearAccel[2] * G_ACCEL * _dt;
+    }
 }
