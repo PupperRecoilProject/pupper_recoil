@@ -1,5 +1,3 @@
-// include/RobotController.h (放在 include 資料夾)
-
 #ifndef ROBOT_CONTROLLER_H
 #define ROBOT_CONTROLLER_H
 
@@ -83,7 +81,7 @@ private:
     std::array<float, NUM_ROBOT_MOTORS> integral_error_rad_s;   // 儲存每個馬達的積分誤差
     const float POS_CONTROL_KP = 3000.0f;                       // 高 P 增益，提供主要驅動力 1000
     const float POS_CONTROL_KD = 150.0f;                         // 高 D 增益 (Kp/50)，提供穩定性 30
-    const float POS_CONTROL_KI = 3000.0f;                        // << 新增：I 增益 (初始值，之後要調整) 1500
+    const float POS_CONTROL_KI = 3000.0f;                        // I 增益 (初始值，之後要調整) 1500
 
     // 啟動補償 (Kickstart / Friction Compensation) 參數
     const int16_t FRICTION_STATIC_COMP_mA = 350;            // 啟動時的基礎電流
