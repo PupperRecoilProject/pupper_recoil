@@ -37,6 +37,21 @@ public:
 	void begin(float sampleFrequency) { invSampleFreq = 1.0f / sampleFrequency; }
 	void update(float gx, float gy, float gz, float ax, float ay, float az, float mx, float my, float mz);
 	void updateIMU(float gx, float gy, float gz, float ax, float ay, float az);
+	
+	/**
+     * @brief Get the quaternion representing the sensor's orientation.
+     * @param w Pointer to a float to store the w (real) component.
+     * @param x Pointer to a float to store the x (imaginary) component.
+     * @param y Pointer to a float to store the y (imaginary) component.
+     * @param z Pointer to a float to store the z (imaginary) component.
+     */
+    void getQuaternion(float *w, float *x, float *y, float *z) {
+        *w = q0;
+        *x = q1;
+        *y = q2;
+        *z = q3;
+    }
+
 	float getRoll() {
 		if (!anglesComputed) computeAngles();
 		return roll * 57.29578f;
