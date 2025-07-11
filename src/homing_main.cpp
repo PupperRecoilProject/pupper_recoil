@@ -301,17 +301,26 @@ void printRobotStatus() {
     // 校準狀態的顯示
     Serial.print(" | Calibrated: ");
     Serial.println(myRobot.isCalibrated() ? "YES" : "NO");
-    snprintf(buf, sizeof(buf), "AHRS Attitude -> Roll:%+7.2f Pitch:%+7.2f Yaw:%+7.2f", myAHRS.roll, myAHRS.pitch, myAHRS.yaw);
+    // --- IMU & AHRS Status ---
+    Serial.println("Source          |      X / Roll      |      Y / Pitch     |      Z / Yaw");
+    Serial.println("----------------+--------------------+--------------------+--------------------");
+    snprintf(buf, sizeof(buf), "%-15s | X:     %+10.3f | Y:     %+10.3f | Z:     %+10.3f", 
+             "IMU Gyro (dps)", myIMU.gyroDPS[0], myIMU.gyroDPS[1], myIMU.gyroDPS[2]);
     Serial.println(buf);
-    snprintf(buf, sizeof(buf), "Linear Accel(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myAHRS.linearAccel[0], myAHRS.linearAccel[1], myAHRS.linearAccel[2]);
+    snprintf(buf, sizeof(buf), "%-15s | X:     %+10.3f | Y:     %+10.3f | Z:     %+10.3f", 
+             "IMU Accel (g)", myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
     Serial.println(buf);
-    snprintf(buf, sizeof(buf), "Est. Velocity(m/s) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myAHRS.velocity[0], myAHRS.velocity[1], myAHRS.velocity[2]);
+    Serial.println("----------------+--------------------+--------------------+--------------------");
+    snprintf(buf, sizeof(buf), "%-15s | Roll:  %+10.2f | Pitch: %+10.2f | Yaw:   %+10.2f", 
+             "AHRS Attitude", myAHRS.roll, myAHRS.pitch, myAHRS.yaw);
     Serial.println(buf);
-    snprintf(buf, sizeof(buf), "IMU Acc(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
+    snprintf(buf, sizeof(buf), "%-15s | X:     %+10.3f | Y:     %+10.3f | Z:     %+10.3f", 
+             "Linear Acc (g)", myAHRS.linearAccel[0], myAHRS.linearAccel[1], myAHRS.linearAccel[2]);
     Serial.println(buf);
-    snprintf(buf, sizeof(buf), "IMU Gyro(dps)-> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.gyroDPS[0], myIMU.gyroDPS[1], myIMU.gyroDPS[2]);
+    snprintf(buf, sizeof(buf), "%-15s | X:     %+10.3f | Y:     %+10.3f | Z:     %+10.3f", 
+             "Est. Vel (m/s)", myAHRS.velocity[0], myAHRS.velocity[1], myAHRS.velocity[2]);
     Serial.println(buf);
-    Serial.println("---");
+    Serial.println("---"); 
 
     Serial.println("Motor Data (ID | Calib. Pos (rad) | Velocity (radps) | Offset (rad))"); 
     for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
