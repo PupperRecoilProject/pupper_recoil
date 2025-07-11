@@ -39,7 +39,7 @@ public:
 
     // --- 高階指令函式 (由 main 呼叫) ---
     void startWiggleTest(int motorID);
-    void setTargetPosition_rad(int motorID, float angle_rad);
+    void setTargetPositionPID(int motorID, float angle_rad);
     void setSingleMotorCurrent(int motorID, int16_t current);
     void setIdle();
     void performManualCalibration();     // 手動校準的觸發函式
@@ -56,6 +56,9 @@ public:
 
     // 用於啟動級聯控制模式並設定完整姿態的函式
     void setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad);
+    // --- 基於串級控制的指令函式 ---
+    void setTargetPositionCascade(int motorID, float angle_rad);
+    void setJointGroupPositionCascade(JointGroup group, float angle_rad);
 
 private:
     // --- 私有函式 (Private Methods) ---
@@ -114,7 +117,7 @@ private:
     // 將 ideal_currents 移到成員變數區域，以便在 update() 之外也能訪問
     std::array<int16_t, NUM_ROBOT_MOTORS> _target_currents_mA;
 
-    // --- **** NEW **** 級聯控制器參數與狀態 ---
+    // --- 級聯控制器參數與狀態 ---
     // 外環: 位置 -> 速度
     static constexpr float CASCADE_POS_KP = 12.0f;
     // 內環: 速度 -> 電流

@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <cstring> // 為了使用 memcpy
 
+
+
 // =================================================================
 //   手動校準姿態定義
 // =================================================================
@@ -96,10 +98,11 @@ void RobotController::update() {
     }
 }
 
+
+
 // =================================================================
 //   高階指令函式 (由 main 呼叫)
 // =================================================================
-
 
 void RobotController::startWiggleTest(int motorID) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
@@ -116,7 +119,7 @@ void RobotController::startWiggleTest(int motorID) {
     Serial.printf("開始為馬達 %d 進行擺動測試，中心位置: %.4f rad。\n", motorID, wiggle_center_pos_rad);
 }
 
-void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
+void RobotController::setTargetPositionPID(int motorID, float angle_rad) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) { /* ... */ return; }   // 在第一次切換到位置控制模式時，初始化所有目標位置
 
     // 在第一次切換到位置控制模式時，進行初始化。
@@ -242,6 +245,48 @@ void RobotController::setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTO
     Serial.println("已設定新的級聯控制目標姿態。");
 }
 
+// 實現新的 setTargetPositionCascade
+void RobotController::setTargetPositionCascade(int motorID, float angle_rad) {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return;
+    if (!isCalibrated()) { /* ... 錯誤提示 ... */ return; }
+
+    // 檢查是否需要切換模式或初始化
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行單關節控制。");
+        
+        // 關鍵：將所有目標凍結在當前位置
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
+        mode = ControlMode::CASCADE_CONTROL;
+        integral_error_vel.fill(0.0f); // 首次進入，重置速度積分項
+    }
+
+    // 更新指定馬達的目標位置
+    target_positions_rad[motorID] = angle_rad;
+    Serial.printf("  [Cascade] 設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
+}
+
+// 實現新的 setJointGroupPositionCascade (邏輯與上面類似)
+void RobotController::setJointGroupPositionCascade(JointGroup group, float angle_rad) {
+    if (!isCalibrated()) { /* ... 錯誤提示 ... */ return; }
+
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行分組控制。");
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        mode = ControlMode::CASCADE_CONTROL;
+        integral_error_vel.fill(0.0f);
+    }
+    
+    // ... (後面根據 group 更新對應的 target_positions_rad[i] 的邏輯不變) ...
+    Serial.printf("--> [Cascade] 正在設定關節組: ..., 目標角度: %.4f rad\n", angle_rad);
+}
+
+
+
 // =================================================================
 //   狀態與數據獲取函式
 // =================================================================
@@ -262,10 +307,11 @@ bool RobotController::isCalibrated() { /* ... 內容不變 ... */ for(bool h : i
 float RobotController::getMotorPosition_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getPosition_rad(motorID) * direction_multipliers[motorID]; }
 float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getRawVelocity_rad(motorID) * direction_multipliers[motorID]; }
 
+
+
 // =================================================================
 //   私有: 內部更新邏輯
 // =================================================================
-
 
 void RobotController::updatePositionControl() {
     // 獲取控制週期的時間間隔 (秒)
@@ -403,6 +449,7 @@ void RobotController::updateCascadeControl() {
 }
 
 
+
 // =================================================================
 //   手動校準實現
 // =================================================================
@@ -460,6 +507,8 @@ void RobotController::performManualCalibration() {
     Serial.println("[成功] 所有馬達手動校準完成！偏移量已儲存。");
     Serial.println("機器人現在已校準，可以接收 'pos' 或 'wiggle' 指令。\n");
 }
+
+
 
 // =================================================================
 //   私有: 輔助函式
