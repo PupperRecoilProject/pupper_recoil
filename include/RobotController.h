@@ -19,6 +19,7 @@ public:
         POSITION_CONTROL, // 位置控制模式
         WIGGLE_TEST,      // 擺動測試模式
         CURRENT_MANUAL_CONTROL,   // 手動電流控制模式
+        JOINT_ARRAY_CONTROL, // 關節陣列控制模式 (用於分組控制)
         ERROR             // 錯誤模式
     };
     // 用於分組控制的關節類型枚舉
@@ -41,6 +42,7 @@ public:
     void setSingleMotorCurrent(int motorID, int16_t current);
     void setIdle();
     void performManualCalibration();     // 手動校準的觸發函式
+    void setAllJointPositions_rad(const float* target_angles); // 設定所有關節的目標角度 (以弧度為單位)
 
     // 按關節類型分組設定目標角度
     void setJointGroupPosition_rad(JointGroup group, float angle_rad);
@@ -80,7 +82,7 @@ private:
     std::array<float, NUM_ROBOT_MOTORS> target_positions_rad;
     std::array<float, NUM_ROBOT_MOTORS> integral_error_rad_s;   // 儲存每個馬達的積分誤差
     const float POS_CONTROL_KP = 3000.0f;                       // 高 P 增益，提供主要驅動力 1000
-    const float POS_CONTROL_KD = 90.0f;                         // 高 D 增益 (Kp/50)，提供穩定性 30
+    const float POS_CONTROL_KD = 150.0f;                         // 高 D 增益 (Kp/50)，提供穩定性 30
     const float POS_CONTROL_KI = 3000.0f;                        // << 新增：I 增益 (初始值，之後要調整) 1500
 
     // 啟動補償 (Kickstart / Friction Compensation) 參數

@@ -76,6 +76,7 @@ void RobotController::update() {
             setAllMotorsIdle();
             break;
         case ControlMode::POSITION_CONTROL:
+        case ControlMode::JOINT_ARRAY_CONTROL:
             updatePositionControl();
             break;
         case ControlMode::WIGGLE_TEST:
@@ -218,6 +219,22 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
     }
 }
 
+void RobotController::setAllJointPositions_rad(const float* target_angles) {
+    // 在第一次切換到陣列控制模式時，進行初始化。
+    if (mode != ControlMode::JOINT_ARRAY_CONTROL) {
+        Serial.println("切換至 JOINT_ARRAY_CONTROL 模式。準備接收高層指令。");
+        
+        // 與其他位置控制模式一樣，重置積分項以獲得乾淨的啟動
+        integral_error_rad_s.fill(0.0f);
+        
+        mode = ControlMode::JOINT_ARRAY_CONTROL;
+    }
+
+    // 將傳入的12個角度數據，拷貝到內部的目標位置陣列中
+    // 使用 memcpy 效率最高
+    memcpy(target_positions_rad.data(), target_angles, sizeof(float) * NUM_ROBOT_MOTORS);
+}
+
 
 // =================================================================
 //   狀態與數據獲取函式
@@ -226,9 +243,10 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
 const char* RobotController::getModeString() {
     switch (mode) {
         case ControlMode::IDLE:             return "IDLE (待機)";
-        case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL (位置控制)";
+        case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL (單關節/分組控制)";
         case ControlMode::WIGGLE_TEST:      return "WIGGLE_TEST (擺動測試)";
         case ControlMode::CURRENT_MANUAL_CONTROL:   return "CURRENT_MANUAL_CONTROL (手動控制)";
+        case ControlMode::JOINT_ARRAY_CONTROL: return "JOINT_ARRAY_CONTROL (高層陣列控制)";
         case ControlMode::ERROR:            return "ERROR (錯誤)";
         default:                            return "UNKNOWN (未知)";
     }

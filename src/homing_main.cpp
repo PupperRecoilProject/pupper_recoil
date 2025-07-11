@@ -252,7 +252,32 @@ void handleSerialCommand(String command) {
         } else {
             Serial.println("  [ERROR] Invalid format. Use 'motor <id> <current_in_mA>'.");
         }
-    
+        
+    } else if (command.startsWith("jpos ")) {
+        // Serial.println("--> Command received: [jpos]"); // 打印太多，先註釋掉
+
+        float angles[NUM_ROBOT_MOTORS];
+        int count = 0;
+        
+        // 使用一個指針來高效地解析字串
+        const char* p = command.c_str() + 5; // 跳過 "jpos "
+
+        // 循環解析12個浮點數
+        while (count < NUM_ROBOT_MOTORS && *p) {
+            // strtof 會從指針 p 指向的位置開始解析一個浮點數，
+            // 並將 p 更新到已解析部分的末尾。
+            angles[count] = strtof(p, (char**)&p);
+            count++;
+        }
+
+        // 檢查是否成功解析了12個數字
+        if (count == NUM_ROBOT_MOTORS) {
+            myRobot.setAllJointPositions_rad(angles);
+        } else {
+            Serial.printf("  [ERROR] Invalid jpos format. Expected 12 float values, but got %d.\n", count);
+            Serial.println("  Example: 'jpos 0.1 0.2 0.3 0.4 0.5 0.6 0.7 0.8 0.9 1.0 1.1 1.2'");
+        }
+
     } else if (command == "stop") {
         Serial.println("--> Command received: [stop]");
         myRobot.setIdle();
