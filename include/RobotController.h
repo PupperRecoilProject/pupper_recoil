@@ -8,6 +8,7 @@
 
 const int NUM_ROBOT_MOTORS = 12;
 const int CONTROL_FREQUENCY_HZ_H = 1000; 
+extern const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad;
 
 class RobotController {
 public:
@@ -17,6 +18,7 @@ public:
     enum class ControlMode {
         IDLE,             // 待機模式
         POSITION_CONTROL, // 位置控制模式
+        CASCADE_CONTROL,  // 新的級聯控制
         WIGGLE_TEST,      // 擺動測試模式
         CURRENT_MANUAL_CONTROL,   // 手動電流控制模式
         ERROR             // 錯誤模式
@@ -52,13 +54,17 @@ public:
     float getMotorVelocity_rad(int motorID);
     int16_t getTargetCurrent_mA(int motorID);   // 獲取上一個控制週期計算出的目標電流 (mA)
 
+    // 用於啟動級聯控制模式並設定完整姿態的函式
+    void setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad);
+
 private:
     // --- 私有函式 (Private Methods) ---
 
     // 狀態機內部使用的更新函式
     void updatePositionControl();
     void updateWiggleTest();
-
+    void updateCascadeControl(); //級聯控制 
+    
     // 輔助函式
     void sendCurrents(int16_t currents[NUM_ROBOT_MOTORS], bool is_ideal); // 統一的指令出口
     void setAllMotorsIdle();
@@ -108,6 +114,16 @@ private:
     // 將 ideal_currents 移到成員變數區域，以便在 update() 之外也能訪問
     std::array<int16_t, NUM_ROBOT_MOTORS> _target_currents_mA;
 
+    // --- **** NEW **** 級聯控制器參數與狀態 ---
+    // 外環: 位置 -> 速度
+    static constexpr float CASCADE_POS_KP = 12.0f;
+    // 內環: 速度 -> 電流
+    static constexpr float CASCADE_VEL_KP = 85.0f;
+    static constexpr float CASCADE_VEL_KI = 450.0f;
+    // 級聯控制安全限制與狀態
+    static constexpr float CASCADE_MAX_TARGET_VELOCITY_RAD_S = 8.0f;
+    static constexpr float CASCADE_INTEGRAL_MAX_ERROR_RAD = 0.5f;
+    std::array<float, NUM_ROBOT_MOTORS> integral_error_vel; // 速度積分項
 };
 
 #endif

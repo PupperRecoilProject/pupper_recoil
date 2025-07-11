@@ -75,6 +75,7 @@ void setup() {
     Serial.println("                  2. Manually pose all joints to the calibration pose.");
     Serial.println("                  3. Send this command to record offsets.");
     Serial.println("  --- High-level Control (requires calibration) ---");
+    Serial.println("  stand         - Use CASCADED control for stable standing. (RECOMMENDED)"); //級聯
     Serial.println("  pos <id> <rad> - Set target position for one motor.");
     Serial.println("  grouppos <group> <rad> - Set target for a joint group (hip, upper, lower).");
     Serial.println("  wiggle <id>   - Start wiggle test for a motor.");
@@ -185,6 +186,12 @@ void handleSerialCommand(String command) {
     if (command == "calibrate") {
         Serial.println("--> Command received: [calibrate]");
         myRobot.performManualCalibration();
+
+    } else if (command == "stand") {
+        Serial.println("--> Command received: [stand]");
+        Serial.println("  Activating CASCADED control for stable standing pose.");
+        // 呼叫新的級聯控制接口，並傳入預設的校準姿態
+        myRobot.setRobotPoseCascade(manual_calibration_pose_rad);
 
     } else if (command.startsWith("pos ")) {
         Serial.print("--> Command received: [");

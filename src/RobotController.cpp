@@ -58,6 +58,7 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
     integral_error_rad_s.fill(0.0f);
+    integral_error_vel.fill(0.0f); // **** NEW **** 初始化速度積分項
     _target_currents_mA.fill(0);
     is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
 }
@@ -77,6 +78,9 @@ void RobotController::update() {
             break;
         case ControlMode::POSITION_CONTROL:
             updatePositionControl();
+            break;
+        case ControlMode::CASCADE_CONTROL: // **** NEW ****
+            updateCascadeControl();    // 呼叫新的級聯控制更新
             break;
         case ControlMode::WIGGLE_TEST:
             updateWiggleTest();
@@ -158,7 +162,8 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
 void RobotController::setIdle() {
     mode = ControlMode::IDLE;
     manual_current_commands.fill(0);
-    integral_error_rad_s.fill(0.0f);
+    integral_error_rad_s.fill(0.0f); // 重置PID位置積分項
+    integral_error_vel.fill(0.0f);   // 重置級聯速度積分項
     for (int i=0; i<NUM_ROBOT_MOTORS; ++i) {
         target_positions_rad[i] = getMotorPosition_rad(i);
     }
@@ -218,6 +223,24 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
     }
 }
 
+// **** NEW **** - 進入級聯控制模式的外部接口
+void RobotController::setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad) {
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 級聯姿態控制失敗：機器人必須先校準！");
+        return;
+    }
+
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式。");
+        // 從非級聯模式首次進入時，清除所有速度積分項，以一個乾淨的狀態開始
+        integral_error_vel.fill(0.0f);
+        mode = ControlMode::CASCADE_CONTROL;
+    }
+    
+    // 更新目標姿態
+    target_positions_rad = pose_rad;
+    Serial.println("已設定新的級聯控制目標姿態。");
+}
 
 // =================================================================
 //   狀態與數據獲取函式
@@ -227,6 +250,7 @@ const char* RobotController::getModeString() {
     switch (mode) {
         case ControlMode::IDLE:             return "IDLE (待機)";
         case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL (位置控制)";
+        case ControlMode::CASCADE_CONTROL:  return "CASCADE_CONTROL (級聯控制)"; // **** NEW ****
         case ControlMode::WIGGLE_TEST:      return "WIGGLE_TEST (擺動測試)";
         case ControlMode::CURRENT_MANUAL_CONTROL:   return "CURRENT_MANUAL_CONTROL (手動控制)";
         case ControlMode::ERROR:            return "ERROR (錯誤)";
@@ -323,6 +347,61 @@ void RobotController::updateWiggleTest() {
     // Wiggle Test 也是基於 "機器人座標系" 的誤差，因此 is_ideal=true
     sendCurrents(_target_currents_mA.data(), true);
 }
+
+// **** NEW **** - 級聯控制的完整更新邏輯
+void RobotController::updateCascadeControl() {
+    const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H;
+
+    for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        // --- 數據採集 ---
+        float current_pos = getMotorPosition_rad(i);
+        float current_vel = getMotorVelocity_rad(i);
+
+        // --- 安全檢查 ---
+        if (abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
+            Serial.printf("!!! 安全停機 !!! 馬達 %d 速度 %.2f 超出限制 %.2f rad/s。\n", i, current_vel, POS_CONTROL_MAX_VELOCITY_RAD_S);
+            setIdle(); return;
+        }
+        float pos_error = target_positions_rad[i] - current_pos;
+        if (abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
+            Serial.printf("!!! 安全停機 !!! 馬達 %d 位置誤差 %.2f 超出限制 %.2f rad。\n", i, pos_error, POS_CONTROL_MAX_ERROR_RAD);
+            setIdle(); return;
+        }
+
+        // --- 外環: 位置控制器 (P-Controller) ---
+        // 計算目標速度，位置誤差越大，期望的修正速度就越快
+        float target_vel = CASCADE_POS_KP * pos_error;
+        target_vel = constrain(target_vel, -CASCADE_MAX_TARGET_VELOCITY_RAD_S, CASCADE_MAX_TARGET_VELOCITY_RAD_S);
+
+        // --- 內環: 速度控制器 (PI-Controller) ---
+        float vel_error = target_vel - current_vel;
+
+        // 積分項累加
+        integral_error_vel[i] += vel_error * dt;
+        // 積分抗飽和 (Anti-Windup)
+        integral_error_vel[i] = constrain(integral_error_vel[i], -CASCADE_INTEGRAL_MAX_ERROR_RAD, CASCADE_INTEGRAL_MAX_ERROR_RAD);
+
+        // PI 計算
+        float p_term = CASCADE_VEL_KP * vel_error;
+        float i_term = CASCADE_VEL_KI * integral_error_vel[i];
+
+        // 總回饋電流
+        float feedback_current = p_term + i_term;
+        
+        // --- 摩擦力補償 (同樣適用於級聯控制) ---
+        float friction_comp_current = 0;
+        if (abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
+            friction_comp_current = copysignf(FRICTION_STATIC_COMP_mA, feedback_current);
+        } else {
+            friction_comp_current = copysignf(FRICTION_KINETIC_COMP_mA, current_vel);
+        }
+
+        _target_currents_mA[i] = (int16_t)(feedback_current + friction_comp_current);
+    }
+
+    sendCurrents(_target_currents_mA.data(), true);
+}
+
 
 // =================================================================
 //   手動校準實現
