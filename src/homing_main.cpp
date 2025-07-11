@@ -6,11 +6,14 @@
 #include <MotorController.h>
 #include "RobotController.h"
 #include <LSM6DSO_SPI.h>
+#include <MahonyAHRS.h>
 
 // --- 建立全域物件 ---
 LSM6DSO         myIMU;
 MotorController myMotorControl;
 RobotController myRobot(&myMotorControl);
+Mahony          myAHRS;
+float roll = 0.0f, pitch = 0.0f, yaw = 0.0f; // 用於儲存姿態角度(Mahony)
 
 // =================================================================
 // --- 固定頻率控制設定 ---
@@ -53,6 +56,7 @@ void setup() {
 
     if (myIMU.begin()) {
         Serial.println("[SUCCESS] IMU Initialized.");
+        myAHRS.begin(CONTROL_FREQUENCY_HZ);
     } else {
         Serial.println("[FAILURE] IMU Initialization Failed! Halting.");
         while(1);
@@ -109,6 +113,15 @@ void loop() {
         last_control_time_micros = current_micros;
         
         myIMU.readSensor();
+        
+        //更新 Mahony 濾波器
+        myAHRS.updateIMU(myIMU.gyroDPS[0] * DEG_TO_RAD, myIMU.gyroDPS[1] * DEG_TO_RAD, myIMU.gyroDPS[2] * DEG_TO_RAD,
+                         myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
+        // 從濾波器獲取計算出的姿態角 (單位: 度)
+        roll  = myAHRS.getRoll();
+        pitch = myAHRS.getPitch();
+        yaw   = myAHRS.getYaw();
+        
         myRobot.update();
     }
 
@@ -292,6 +305,8 @@ void printRobotStatus() {
     // 校準狀態的顯示
     Serial.print(" | Calibrated: ");
     Serial.println(myRobot.isCalibrated() ? "YES" : "NO");
+    snprintf(buf, sizeof(buf), "AHRS Attitude -> Roll:%+7.2f Pitch:%+7.2f Yaw:%+7.2f", roll, pitch, yaw);
+    Serial.println(buf);
     snprintf(buf, sizeof(buf), "IMU Acc(g) -> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.accG[0], myIMU.accG[1], myIMU.accG[2]);
     Serial.println(buf);
     snprintf(buf, sizeof(buf), "IMU Gyro(dps)-> X:%+7.3f Y:%+7.3f Z:%+7.3f", myIMU.gyroDPS[0], myIMU.gyroDPS[1], myIMU.gyroDPS[2]);
