@@ -119,13 +119,13 @@ private:
 
     // --- 級聯控制器參數與狀態 ---
     // 外環: 位置 -> 速度
-    static constexpr float CASCADE_POS_KP = 12.0f;
+    static constexpr float CASCADE_POS_KP = 16.0f;   //12.0
     // 內環: 速度 -> 電流
-    static constexpr float CASCADE_VEL_KP = 85.0f;
-    static constexpr float CASCADE_VEL_KI = 450.0f;
+    static constexpr float CASCADE_VEL_KP = 500.0f;  //85.0
+    static constexpr float CASCADE_VEL_KI = 0.0f;    //450.0
     // 級聯控制安全限制與狀態
-    static constexpr float CASCADE_MAX_TARGET_VELOCITY_RAD_S = 8.0f;
-    static constexpr float CASCADE_INTEGRAL_MAX_ERROR_RAD = 0.5f;
+    static constexpr float CASCADE_MAX_TARGET_VELOCITY_RAD_S = 8.0f; //8.0
+    static constexpr float CASCADE_INTEGRAL_MAX_ERROR_RAD = 0.5f;    //0.5
     std::array<float, NUM_ROBOT_MOTORS> integral_error_vel; // 速度積分項
 };
 
