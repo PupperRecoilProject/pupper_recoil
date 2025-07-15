@@ -270,20 +270,58 @@ void RobotController::setTargetPositionCascade(int motorID, float angle_rad) {
 
 // 實現新的 setJointGroupPositionCascade (邏輯與上面類似)
 void RobotController::setJointGroupPositionCascade(JointGroup group, float angle_rad) {
-    if (!isCalibrated()) { /* ... 錯誤提示 ... */ return; }
+    // 步驟 1: 安全檢查 - 未校準則不執行
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 分組控制失敗：機器人必須先校準 (cal)！");
+        return;
+    }
 
+    // 步驟 2 & 3: 模式管理 - 如果不是串級模式，則執行安全切換
     if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行分組控制。");
+        Serial.println("非串級模式，正在執行安全切換至 CASCADE_CONTROL...");
+        
+        // 步驟 3.1: 凍結 - 將所有目標位置刷新為當前實際位置，防止亂動
         for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
             target_positions_rad[i] = getMotorPosition_rad(i);
         }
+        
+        // 步驟 3.2: 切換 - 設定新模式
         mode = ControlMode::CASCADE_CONTROL;
+        // 步驟 3.3: 重置 - 清除舊的積分誤差
         integral_error_vel.fill(0.0f);
+        Serial.println("模式切換完成，已凍結所有關節。");
+    }
+
+    // 步驟 4: 確定目標 - 根據組別確定起始索引
+    int start_index = -1;
+    const char* group_name = "UNKNOWN";
+    switch(group) {
+        case JointGroup::HIP:
+            start_index = 0; // 馬達ID 0, 3, 6, 9
+            group_name = "HIP";
+            break;
+        case JointGroup::UPPER:
+            start_index = 1; // 馬達ID 1, 4, 7, 10
+            group_name = "UPPER";
+            break;
+        case JointGroup::LOWER:
+            start_index = 2; // 馬達ID 2, 5, 8, 11
+            group_name = "LOWER";
+            break;
     }
     
-    // ... (後面根據 group 更新對應的 target_positions_rad[i] 的邏輯不變) ...
-    Serial.printf("--> [Cascade] 正在設定關節組: ..., 目標角度: %.4f rad\n", angle_rad);
+    Serial.printf("--> [Cascade] 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
+
+    // 步驟 5: 更新目標 - 遍歷並更新屬於該組的馬達的目標位置
+    if (start_index != -1) {
+        for (int i = start_index; i < NUM_ROBOT_MOTORS; i += 3) {
+            target_positions_rad[i] = angle_rad;
+        }
+    } else {
+        Serial.println("[錯誤] 無效的關節組別。");
+    }
 }
+
 
 
 
