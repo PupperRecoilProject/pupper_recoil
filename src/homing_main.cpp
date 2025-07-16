@@ -7,12 +7,14 @@
 #include "RobotController.h"
 #include <LSM6DSO_SPI.h>
 #include "AHRS.h"
+#include "TelemetrySystem.h"
 
 // --- 建立全域物件 ---
 LSM6DSO         myIMU;
 MotorController myMotorControl;
 RobotController myRobot(&myMotorControl);
 SimpleAHRS      myAHRS;
+TelemetrySystem myTelemetry(&myRobot, &myAHRS, &myMotorControl); 
 
 // =================================================================
 // --- 固定頻率控制設定 ---
@@ -22,7 +24,7 @@ const long CONTROL_INTERVAL_MICROS = 1000000 / CONTROL_FREQUENCY_HZ;
 unsigned long last_control_time_micros = 0;
 
 const int PRINT_FREQUENCY_HZ = 2;
-const long PRINT_INTERVAL_MILLIS = 1000 / PRINT_FREQUENCY_HZ;
+long g_print_interval_millis = 1000 / 2;
 long last_print_time_millis = 0;
 
 // 用於控制是否打印額外數據的旗標
@@ -37,7 +39,7 @@ int serial_buffer_pos = 0;            // 目前寫入到緩衝區的位置
 
 void checkAndProcessSerial(); // 檢查並處理序列埠數據的新函式
 void handleSerialCommand(String command);
-void printRobotStatus();
+//void printRobotStatus();
 
 // =================================================================
 //   SETUP - 程式啟動時只會執行一次
@@ -66,6 +68,8 @@ void setup() {
     
     myRobot.begin();
     Serial.println("[SUCCESS] Robot Controller Initialized.");
+    myTelemetry.begin();
+    Serial.println("[SUCCESS] Telemetry System Initialized.");
     Serial.println("========================================");
     Serial.println("Commands (press Enter to execute):");
     Serial.println("--- High-Level Control (using CASCADE controller) ---");
@@ -79,11 +83,15 @@ void setup() {
     Serial.println("  reboot        - Reboot the microcontroller.");
     Serial.println(""); // 空行
     Serial.println("--- Testing & Debugging ---");
+    Serial.println("  monitor <mode>        - Set output format (modes: human, csv, dashboard).");
+    Serial.println("  focus <id|off>        - Focus on a motor for all modes (e.g., focus 3, focus off).");
+    Serial.println("  freq <hz>             - Set monitor print frequency (e.g., 1, 10, 50).");
+    Serial.println("--- Low-Level Testing ---");
     Serial.println("  test_pid <id> <rad> - Test the old SINGLE-LOOP PID controller.");
     Serial.println("  test_wiggle <id>    - Start wiggle test for a motor.");
     Serial.println("  raw <id> <mA>       - Manually set raw current for one motor.");
     Serial.println("  print <on|off>      - Enable/Disable extra data printing.");
-
+    Serial.println("  postest ...           - Test position control with custom gains.");
     Serial.println("========================================\n");
 
     
@@ -120,11 +128,11 @@ void loop() {
     // 3. 低頻率的數據打印任務 (例如 1Hz)
     // -------------------------------------------------
     unsigned long current_millis = millis();
-    if (current_millis - last_print_time_millis >= PRINT_INTERVAL_MILLIS) {
+    if (current_millis - last_print_time_millis >= g_print_interval_millis) {
         last_print_time_millis = current_millis;
 
         digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-        printRobotStatus();
+        myTelemetry.updateAndPrint();
     }
 }
 
@@ -299,11 +307,64 @@ void handleSerialCommand(String command) {
             Serial.println("  [ERROR] Invalid format. Use: print <on|off>");
         }
 
-    // --- Fallback for Unknown Commands ---
+    } else if (command.startsWith("monitor ")) {
+        // 截取 "monitor " 後面的模式字串
+        String mode_str = command.substring(8);
+        mode_str.trim(); // 去掉前後可能存在的空格
 
-    } else {
+        // 根據模式字串，呼叫 TelemetrySystem 中對應的設定函式
+        if (mode_str == "human") {
+            myTelemetry.setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
+        } else if (mode_str == "csv") {
+            myTelemetry.setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
+        } else if (mode_str == "dashboard") {
+            myTelemetry.setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
+        } else {
+            // 如果模式無效，給出錯誤提示
+            Serial.println("  [ERROR] Unknown monitor mode. Use: human, csv, or dashboard");
+        } 
+
+    } else if (command.startsWith("freq ")) {
+        int hz = command.substring(5).toInt();
+        if (hz > 0 && hz <= 100) { // 設定一個合理的頻率上下限
+            g_print_interval_millis = 1000 / hz;
+            Serial.printf("--> [OK] Monitor frequency set to %d Hz (interval: %ld ms).\n", hz, g_print_interval_millis);
+        } else {
+            Serial.println("  [ERROR] Invalid frequency. Please use a value between 1 and 100.");
+        }
+    
+    } else if (command.startsWith("focus ")) {
+        // 截取 "focus " 後面的參數
+        String arg = command.substring(6);
+        arg.trim(); // 去掉前後空格
+
+        // 如果參數是 'off'，則取消焦點
+        if (arg == "off") {
+            myTelemetry.setFocusMotor(-1); // -1 在 TelemetrySystem 中被定義為"取消焦點"
+        } else {
+            // 檢查輸入是否為有效的數字（包括負號開頭的情況）
+            // 這可以防止 'focus abc' 這樣的指令被 toInt() 錯誤地轉換為 0
+            bool is_valid_number = false;
+            if (arg.length() > 0) {
+                if (isDigit(arg.charAt(0)) || (arg.charAt(0) == '-' && arg.length() > 1 && isDigit(arg.charAt(1)))) {
+                    is_valid_number = true;
+                }
+            }
+
+            if (is_valid_number) {
+                int motorID = arg.toInt();
+                myTelemetry.setFocusMotor(motorID); // 將ID傳給遙測系統
+            } else {
+                 Serial.println("  [ERROR] Invalid argument. Use a motor ID number or 'off'.");
+            }
+        }
+    }
+
+    // --- Fallback for Unknown Commands ---
+    else {
         Serial.printf("  [ERROR] Unknown command: '%s'\n", command.c_str());
     }
+
 }
 
 /**

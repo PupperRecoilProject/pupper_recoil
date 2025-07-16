@@ -10,6 +10,16 @@ const int NUM_ROBOT_MOTORS = 12;
 const int CONTROL_FREQUENCY_HZ_H = 1000; 
 extern const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad;
 
+struct CascadeDebugInfo {
+    float target_pos_rad;
+    float current_pos_rad;
+    float pos_error_rad;
+    float target_vel_rad_s;
+    float current_vel_rad_s;
+    float vel_error_rad_s;
+    int16_t target_current_mA;
+};
+
 class RobotController {
 public:
     // --- 公開介面 (Public Interface) ---
@@ -59,6 +69,8 @@ public:
     // --- 基於串級控制的指令函式 ---
     void setTargetPositionCascade(int motorID, float angle_rad);
     void setJointGroupPositionCascade(JointGroup group, float angle_rad);
+
+    CascadeDebugInfo getCascadeDebugInfo(int motorID);
 
 private:
     // --- 私有函式 (Private Methods) ---
@@ -127,6 +139,9 @@ private:
     static constexpr float CASCADE_MAX_TARGET_VELOCITY_RAD_S = 8.0f; //8.0
     static constexpr float CASCADE_INTEGRAL_MAX_ERROR_RAD = 0.5f;    //0.5
     std::array<float, NUM_ROBOT_MOTORS> integral_error_vel; // 速度積分項
+
+    std::array<float, NUM_ROBOT_MOTORS> _target_vel_rad_s;
+    std::array<float, NUM_ROBOT_MOTORS> _vel_error_rad_s;
 };
 
 #endif

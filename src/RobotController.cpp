@@ -481,12 +481,27 @@ void RobotController::updateCascadeControl() {
         }
 
         _target_currents_mA[i] = (int16_t)(feedback_current + friction_comp_current);
+
+        _target_vel_rad_s[i] = target_vel;
+        _vel_error_rad_s[i] = vel_error;
     }
 
     sendCurrents(_target_currents_mA.data(), true);
 }
 
+CascadeDebugInfo RobotController::getCascadeDebugInfo(int motorID) {
+    CascadeDebugInfo info = {0};
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return info;
 
+    info.target_pos_rad    = target_positions_rad[motorID];
+    info.current_pos_rad   = getMotorPosition_rad(motorID);
+    info.pos_error_rad     = info.target_pos_rad - info.current_pos_rad;
+    info.target_vel_rad_s  = _target_vel_rad_s[motorID];
+    info.current_vel_rad_s = getMotorVelocity_rad(motorID);
+    info.vel_error_rad_s   = _vel_error_rad_s[motorID];
+    info.target_current_mA = _target_currents_mA[motorID];
+    return info;
+}
 
 // =================================================================
 //   手動校準實現
