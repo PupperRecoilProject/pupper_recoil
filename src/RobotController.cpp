@@ -79,6 +79,7 @@ void RobotController::update() {
             setAllMotorsIdle();
             break;
         case ControlMode::POSITION_CONTROL:
+        case ControlMode::JOINT_ARRAY_CONTROL:
             updatePositionControl();
             break;
         case ControlMode::CASCADE_CONTROL: // **** NEW ****
@@ -324,7 +325,6 @@ void RobotController::setJointGroupPositionCascade(JointGroup group, float angle
 
 
 
-
 // =================================================================
 //   狀態與數據獲取函式
 // =================================================================
@@ -336,6 +336,7 @@ const char* RobotController::getModeString() {
         case ControlMode::CASCADE_CONTROL:  return "CASCADE_CONTROL (級聯控制)"; // **** NEW ****
         case ControlMode::WIGGLE_TEST:      return "WIGGLE_TEST (擺動測試)";
         case ControlMode::CURRENT_MANUAL_CONTROL:   return "CURRENT_MANUAL_CONTROL (手動控制)";
+        case ControlMode::JOINT_ARRAY_CONTROL: return "JOINT_ARRAY_CONTROL (高層陣列控制)";
         case ControlMode::ERROR:            return "ERROR (錯誤)";
         default:                            return "UNKNOWN (未知)";
     }
