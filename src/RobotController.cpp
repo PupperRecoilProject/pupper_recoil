@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <cstring> // 為了使用 memcpy
 
+
+
 // =================================================================
 //   手動校準姿態定義
 // =================================================================
@@ -58,6 +60,7 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
     integral_error_rad_s.fill(0.0f);
+    integral_error_vel.fill(0.0f); // **** NEW **** 初始化速度積分項
     _target_currents_mA.fill(0);
     is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
 }
@@ -79,6 +82,9 @@ void RobotController::update() {
         case ControlMode::JOINT_ARRAY_CONTROL:
             updatePositionControl();
             break;
+        case ControlMode::CASCADE_CONTROL: // **** NEW ****
+            updateCascadeControl();    // 呼叫新的級聯控制更新
+            break;
         case ControlMode::WIGGLE_TEST:
             updateWiggleTest();
             break;
@@ -93,10 +99,11 @@ void RobotController::update() {
     }
 }
 
+
+
 // =================================================================
 //   高階指令函式 (由 main 呼叫)
 // =================================================================
-
 
 void RobotController::startWiggleTest(int motorID) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
@@ -113,7 +120,7 @@ void RobotController::startWiggleTest(int motorID) {
     Serial.printf("開始為馬達 %d 進行擺動測試，中心位置: %.4f rad。\n", motorID, wiggle_center_pos_rad);
 }
 
-void RobotController::setTargetPosition_rad(int motorID, float angle_rad) {
+void RobotController::setTargetPositionPID(int motorID, float angle_rad) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) { /* ... */ return; }   // 在第一次切換到位置控制模式時，初始化所有目標位置
 
     // 在第一次切換到位置控制模式時，進行初始化。
@@ -159,7 +166,8 @@ void RobotController::setSingleMotorCurrent(int motorID, int16_t current) {
 void RobotController::setIdle() {
     mode = ControlMode::IDLE;
     manual_current_commands.fill(0);
-    integral_error_rad_s.fill(0.0f);
+    integral_error_rad_s.fill(0.0f); // 重置PID位置積分項
+    integral_error_vel.fill(0.0f);   // 重置級聯速度積分項
     for (int i=0; i<NUM_ROBOT_MOTORS; ++i) {
         target_positions_rad[i] = getMotorPosition_rad(i);
     }
@@ -219,21 +227,102 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
     }
 }
 
-void RobotController::setAllJointPositions_rad(const float* target_angles) {
-    // 在第一次切換到陣列控制模式時，進行初始化。
-    if (mode != ControlMode::JOINT_ARRAY_CONTROL) {
-        Serial.println("切換至 JOINT_ARRAY_CONTROL 模式。準備接收高層指令。");
-        
-        // 與其他位置控制模式一樣，重置積分項以獲得乾淨的啟動
-        integral_error_rad_s.fill(0.0f);
-        
-        mode = ControlMode::JOINT_ARRAY_CONTROL;
+// **** NEW **** - 進入級聯控制模式的外部接口
+void RobotController::setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad) {
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 級聯姿態控制失敗：機器人必須先校準！");
+        return;
     }
 
-    // 將傳入的12個角度數據，拷貝到內部的目標位置陣列中
-    // 使用 memcpy 效率最高
-    memcpy(target_positions_rad.data(), target_angles, sizeof(float) * NUM_ROBOT_MOTORS);
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式。");
+        // 從非級聯模式首次進入時，清除所有速度積分項，以一個乾淨的狀態開始
+        integral_error_vel.fill(0.0f);
+        mode = ControlMode::CASCADE_CONTROL;
+    }
+    
+    // 更新目標姿態
+    target_positions_rad = pose_rad;
+    Serial.println("已設定新的級聯控制目標姿態。");
 }
+
+// 實現新的 setTargetPositionCascade
+void RobotController::setTargetPositionCascade(int motorID, float angle_rad) {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return;
+    if (!isCalibrated()) { /* ... 錯誤提示 ... */ return; }
+
+    // 檢查是否需要切換模式或初始化
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行單關節控制。");
+        
+        // 關鍵：將所有目標凍結在當前位置
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
+        mode = ControlMode::CASCADE_CONTROL;
+        integral_error_vel.fill(0.0f); // 首次進入，重置速度積分項
+    }
+
+    // 更新指定馬達的目標位置
+    target_positions_rad[motorID] = angle_rad;
+    Serial.printf("  [Cascade] 設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
+}
+
+// 實現新的 setJointGroupPositionCascade (邏輯與上面類似)
+void RobotController::setJointGroupPositionCascade(JointGroup group, float angle_rad) {
+    // 步驟 1: 安全檢查 - 未校準則不執行
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 分組控制失敗：機器人必須先校準 (cal)！");
+        return;
+    }
+
+    // 步驟 2 & 3: 模式管理 - 如果不是串級模式，則執行安全切換
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("非串級模式，正在執行安全切換至 CASCADE_CONTROL...");
+        
+        // 步驟 3.1: 凍結 - 將所有目標位置刷新為當前實際位置，防止亂動
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
+        // 步驟 3.2: 切換 - 設定新模式
+        mode = ControlMode::CASCADE_CONTROL;
+        // 步驟 3.3: 重置 - 清除舊的積分誤差
+        integral_error_vel.fill(0.0f);
+        Serial.println("模式切換完成，已凍結所有關節。");
+    }
+
+    // 步驟 4: 確定目標 - 根據組別確定起始索引
+    int start_index = -1;
+    const char* group_name = "UNKNOWN";
+    switch(group) {
+        case JointGroup::HIP:
+            start_index = 0; // 馬達ID 0, 3, 6, 9
+            group_name = "HIP";
+            break;
+        case JointGroup::UPPER:
+            start_index = 1; // 馬達ID 1, 4, 7, 10
+            group_name = "UPPER";
+            break;
+        case JointGroup::LOWER:
+            start_index = 2; // 馬達ID 2, 5, 8, 11
+            group_name = "LOWER";
+            break;
+    }
+    
+    Serial.printf("--> [Cascade] 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
+
+    // 步驟 5: 更新目標 - 遍歷並更新屬於該組的馬達的目標位置
+    if (start_index != -1) {
+        for (int i = start_index; i < NUM_ROBOT_MOTORS; i += 3) {
+            target_positions_rad[i] = angle_rad;
+        }
+    } else {
+        Serial.println("[錯誤] 無效的關節組別。");
+    }
+}
+
 
 
 // =================================================================
@@ -243,7 +332,8 @@ void RobotController::setAllJointPositions_rad(const float* target_angles) {
 const char* RobotController::getModeString() {
     switch (mode) {
         case ControlMode::IDLE:             return "IDLE (待機)";
-        case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL (單關節/分組控制)";
+        case ControlMode::POSITION_CONTROL: return "POSITION_CONTROL (位置控制)";
+        case ControlMode::CASCADE_CONTROL:  return "CASCADE_CONTROL (級聯控制)"; // **** NEW ****
         case ControlMode::WIGGLE_TEST:      return "WIGGLE_TEST (擺動測試)";
         case ControlMode::CURRENT_MANUAL_CONTROL:   return "CURRENT_MANUAL_CONTROL (手動控制)";
         case ControlMode::JOINT_ARRAY_CONTROL: return "JOINT_ARRAY_CONTROL (高層陣列控制)";
@@ -256,10 +346,11 @@ bool RobotController::isCalibrated() { /* ... 內容不變 ... */ for(bool h : i
 float RobotController::getMotorPosition_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getPosition_rad(motorID) * direction_multipliers[motorID]; }
 float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getRawVelocity_rad(motorID) * direction_multipliers[motorID]; }
 
+
+
 // =================================================================
 //   私有: 內部更新邏輯
 // =================================================================
-
 
 void RobotController::updatePositionControl() {
     // 獲取控制週期的時間間隔 (秒)
@@ -342,6 +433,77 @@ void RobotController::updateWiggleTest() {
     sendCurrents(_target_currents_mA.data(), true);
 }
 
+// **** NEW **** - 級聯控制的完整更新邏輯
+void RobotController::updateCascadeControl() {
+    const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H;
+
+    for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        // --- 數據採集 ---
+        float current_pos = getMotorPosition_rad(i);
+        float current_vel = getMotorVelocity_rad(i);
+
+        // --- 安全檢查 ---
+        if (abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
+            Serial.printf("!!! 安全停機 !!! 馬達 %d 速度 %.2f 超出限制 %.2f rad/s。\n", i, current_vel, POS_CONTROL_MAX_VELOCITY_RAD_S);
+            setIdle(); return;
+        }
+        float pos_error = target_positions_rad[i] - current_pos;
+        if (abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
+            Serial.printf("!!! 安全停機 !!! 馬達 %d 位置誤差 %.2f 超出限制 %.2f rad。\n", i, pos_error, POS_CONTROL_MAX_ERROR_RAD);
+            setIdle(); return;
+        }
+
+        // --- 外環: 位置控制器 (P-Controller) ---
+        // 計算目標速度，位置誤差越大，期望的修正速度就越快
+        float target_vel = CASCADE_POS_KP * pos_error;
+        target_vel = constrain(target_vel, -CASCADE_MAX_TARGET_VELOCITY_RAD_S, CASCADE_MAX_TARGET_VELOCITY_RAD_S);
+
+        // --- 內環: 速度控制器 (PI-Controller) ---
+        float vel_error = target_vel - current_vel;
+
+        // 積分項累加
+        integral_error_vel[i] += vel_error * dt;
+        // 積分抗飽和 (Anti-Windup)
+        integral_error_vel[i] = constrain(integral_error_vel[i], -CASCADE_INTEGRAL_MAX_ERROR_RAD, CASCADE_INTEGRAL_MAX_ERROR_RAD);
+
+        // PI 計算
+        float p_term = CASCADE_VEL_KP * vel_error;
+        float i_term = CASCADE_VEL_KI * integral_error_vel[i];
+
+        // 總回饋電流
+        float feedback_current = p_term + i_term;
+        
+        // --- 摩擦力補償 (同樣適用於級聯控制) ---
+        float friction_comp_current = 0;
+        if (abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
+            friction_comp_current = copysignf(FRICTION_STATIC_COMP_mA, feedback_current);
+        } else {
+            friction_comp_current = copysignf(FRICTION_KINETIC_COMP_mA, current_vel);
+        }
+
+        _target_currents_mA[i] = (int16_t)(feedback_current + friction_comp_current);
+
+        _target_vel_rad_s[i] = target_vel;
+        _vel_error_rad_s[i] = vel_error;
+    }
+
+    sendCurrents(_target_currents_mA.data(), true);
+}
+
+CascadeDebugInfo RobotController::getCascadeDebugInfo(int motorID) {
+    CascadeDebugInfo info = {0};
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return info;
+
+    info.target_pos_rad    = target_positions_rad[motorID];
+    info.current_pos_rad   = getMotorPosition_rad(motorID);
+    info.pos_error_rad     = info.target_pos_rad - info.current_pos_rad;
+    info.target_vel_rad_s  = _target_vel_rad_s[motorID];
+    info.current_vel_rad_s = getMotorVelocity_rad(motorID);
+    info.vel_error_rad_s   = _vel_error_rad_s[motorID];
+    info.target_current_mA = _target_currents_mA[motorID];
+    return info;
+}
+
 // =================================================================
 //   手動校準實現
 // =================================================================
@@ -399,6 +561,8 @@ void RobotController::performManualCalibration() {
     Serial.println("[成功] 所有馬達手動校準完成！偏移量已儲存。");
     Serial.println("機器人現在已校準，可以接收 'pos' 或 'wiggle' 指令。\n");
 }
+
+
 
 // =================================================================
 //   私有: 輔助函式

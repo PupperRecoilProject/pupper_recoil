@@ -7,12 +7,14 @@
 #include "RobotController.h"
 #include <LSM6DSO_SPI.h>
 #include "AHRS.h"
+#include "TelemetrySystem.h"
 
 // --- 建立全域物件 ---
 LSM6DSO         myIMU;
 MotorController myMotorControl;
 RobotController myRobot(&myMotorControl);
 SimpleAHRS      myAHRS;
+TelemetrySystem myTelemetry(&myRobot, &myAHRS, &myMotorControl); 
 
 // =================================================================
 // --- 固定頻率控制設定 ---
@@ -21,8 +23,8 @@ const int CONTROL_FREQUENCY_HZ = 1000;
 const long CONTROL_INTERVAL_MICROS = 1000000 / CONTROL_FREQUENCY_HZ;
 unsigned long last_control_time_micros = 0;
 
-const int PRINT_FREQUENCY_HZ = 50;
-const long PRINT_INTERVAL_MILLIS = 1000 / PRINT_FREQUENCY_HZ;
+const int PRINT_FREQUENCY_HZ = 2;
+long g_print_interval_millis = 1000 / 2;
 long last_print_time_millis = 0;
 
 // 用於控制是否打印額外數據的旗標
@@ -37,7 +39,7 @@ int serial_buffer_pos = 0;            // 目前寫入到緩衝區的位置
 
 void checkAndProcessSerial(); // 檢查並處理序列埠數據的新函式
 void handleSerialCommand(String command);
-void printRobotStatus();
+//void printRobotStatus();
 
 // =================================================================
 //   SETUP - 程式啟動時只會執行一次
@@ -66,27 +68,32 @@ void setup() {
     
     myRobot.begin();
     Serial.println("[SUCCESS] Robot Controller Initialized.");
-    Serial.println("----------------------------------------");
-    
+    myTelemetry.begin();
+    Serial.println("[SUCCESS] Telemetry System Initialized.");
+    Serial.println("========================================");
     Serial.println("Commands (press Enter to execute):");
-    Serial.println("  --- Calibration ---");
-    Serial.println("  calibrate     - Perform manual calibration. Procedure:");
-    Serial.println("                  1. Use 'stop' to enter IDLE mode.");
-    Serial.println("                  2. Manually pose all joints to the calibration pose.");
-    Serial.println("                  3. Send this command to record offsets.");
-    Serial.println("  --- High-level Control (requires calibration) ---");
-    Serial.println("  pos <id> <rad> - Set target position for one motor.");
-    Serial.println("  grouppos <group> <rad> - Set target for a joint group (hip, upper, lower).");
-    Serial.println("  wiggle <id>   - Start wiggle test for a motor.");
-    Serial.println("  --- Manual & Stop ---");
-    Serial.println("  motor <id> <mA> - Manually set current for one motor.");
-    Serial.println("  stop          - Stop all motors and enter IDLE mode.");
+    Serial.println("--- High-Level Control (using CASCADE controller) ---");
+    Serial.println("  stand         - Robot enters stable standing pose.");
+    Serial.println("  pos <id> <rad> - Set a single motor's position. Smoothly controlled.");
+    Serial.println("  group <g> <rad> - Set a joint group's position (g: hip, upper, lower).");
+    Serial.println(""); // 空行，用於分隔
+    Serial.println("--- System & Calibration ---");
+    Serial.println("  cal           - Perform manual calibration. Must be in IDLE mode.");
+    Serial.println("  stop          - Stop all motors and enter IDLE mode. (SAFETY FIRST!)");
     Serial.println("  reboot        - Reboot the microcontroller.");
-    Serial.println("  --- Debugging ---");
-    Serial.println("  printon       - Enable printing of motor current data.");
-    Serial.println("  printoff      - Disable printing of motor current data.");
-
+    Serial.println(""); // 空行
+    Serial.println("--- Testing & Debugging ---");
+    Serial.println("  monitor <mode>        - Set output format (modes: human, csv, dashboard).");
+    Serial.println("  focus <id|off>        - Focus on a motor for all modes (e.g., focus 3, focus off).");
+    Serial.println("  freq <hz>             - Set monitor print frequency (e.g., 1, 10, 50).");
+    Serial.println("--- Low-Level Testing ---");
+    Serial.println("  test_pid <id> <rad> - Test the old SINGLE-LOOP PID controller.");
+    Serial.println("  test_wiggle <id>    - Start wiggle test for a motor.");
+    Serial.println("  raw <id> <mA>       - Manually set raw current for one motor.");
+    Serial.println("  print <on|off>      - Enable/Disable extra data printing.");
+    Serial.println("  postest ...           - Test position control with custom gains.");
     Serial.println("========================================\n");
+
     
     digitalWrite(LED_BUILTIN, LOW);
 }
@@ -121,11 +128,11 @@ void loop() {
     // 3. 低頻率的數據打印任務 (例如 1Hz)
     // -------------------------------------------------
     unsigned long current_millis = millis();
-    if (current_millis - last_print_time_millis >= PRINT_INTERVAL_MILLIS) {
+    if (current_millis - last_print_time_millis >= g_print_interval_millis) {
         last_print_time_millis = current_millis;
 
         digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
-        printRobotStatus();
+        myTelemetry.updateAndPrint();
     }
 }
 
@@ -178,138 +185,186 @@ void checkAndProcessSerial() {
 
 
 /**
- * @brief 處理從序列埠接收到的指令 (此函式內容不變)
- * @param command 從序列埠讀取到的字串指令
+ * @brief 處理從序列埠接收到的完整指令字串。
+ *        此函式根據指令關鍵字，呼叫 RobotController 中對應的功能。
+ * @param command 從序列埠讀取並整理好的字串指令。
  */
 void handleSerialCommand(String command) {
-    if (command == "calibrate") {
-        Serial.println("--> Command received: [calibrate]");
-        myRobot.performManualCalibration();
+    
+    // --- High-Level Control (預設使用 Cascade Controller) ---
+
+    if (command == "stand") {
+        Serial.println("--> Command: [stand]");
+        Serial.println("  Activating CASCADED control for stable standing pose.");
+        // 保留原有功能：呼叫 setRobotPoseCascade 並傳入完整的校準姿態
+        myRobot.setRobotPoseCascade(manual_calibration_pose_rad);
 
     } else if (command.startsWith("pos ")) {
-        Serial.print("--> Command received: [");
-        Serial.print(command);
-        Serial.println("]");
-        
+        Serial.printf("--> Command: [%s]\n", command.c_str());
         int space1 = command.indexOf(' ');
         int space2 = command.indexOf(' ', space1 + 1);
 
         if (space1 != -1 && space2 != -1) {
             int motorID = command.substring(space1 + 1, space2).toInt();
             float angle_rad = command.substring(space2 + 1).toFloat();
-            myRobot.setTargetPosition_rad(motorID, angle_rad);
+            // 【核心改變】呼叫為單關節設計的 Cascade 控制函式，以獲得更平滑的運動
+            myRobot.setTargetPositionCascade(motorID, angle_rad);
         } else {
-            Serial.println("  [ERROR] Invalid format. Use 'pos <id> <angle_in_radians>'.");
+            Serial.println("  [ERROR] Invalid format. Use: pos <id> <radians>");
         }
-    
-    } else if (command.startsWith("grouppos ")) {
-        Serial.print("--> Command received: [");
-        Serial.print(command);
-        Serial.println("]");
-    
+
+    } else if (command.startsWith("group ")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
         int space1 = command.indexOf(' ');
         int space2 = command.indexOf(' ', space1 + 1);
 
         if (space1 != -1 && space2 != -1) {
             String group_str = command.substring(space1 + 1, space2);
             float angle_rad = command.substring(space2 + 1).toFloat();
+            group_str.toLowerCase();
 
             RobotController::JointGroup group;
             bool valid_group = true;
-
-            group_str.toLowerCase(); // 將組名轉為小寫，讓指令不分大小寫
-
-            if (group_str == "hip") {
-                group = RobotController::JointGroup::HIP;
-            } else if (group_str == "upper") {
-                group = RobotController::JointGroup::UPPER;
-            } else if (group_str == "lower") {
-                group = RobotController::JointGroup::LOWER;
-            } else {
-                valid_group = false;
-                Serial.println("  [ERROR] Invalid group. Use 'hip', 'upper', or 'lower'.");
-            }
+            if (group_str == "hip")       group = RobotController::JointGroup::HIP;
+            else if (group_str == "upper")  group = RobotController::JointGroup::UPPER;
+            else if (group_str == "lower")  group = RobotController::JointGroup::LOWER;
+            else valid_group = false;
 
             if (valid_group) {
-                myRobot.setJointGroupPosition_rad(group, angle_rad);
+                // 【核心改變】呼叫為關節組設計的 Cascade 控制函式
+                myRobot.setJointGroupPositionCascade(group, angle_rad);
+            } else {
+                Serial.println("  [ERROR] Invalid group. Use: hip, upper, or lower");
             }
         } else {
-            Serial.println("  [ERROR] Invalid format. Use 'grouppos <group> <angle_in_radians>'.");
-        }
-        
-    } else if (command.startsWith("wiggle ")) {
-        int motorID = command.substring(7).toInt();
-        Serial.printf("--> Command received: [wiggle %d]\n", motorID);
-        myRobot.startWiggleTest(motorID);
-
-    } else if (command.startsWith("motor ")) {
-        Serial.print("--> Command received: [");
-        Serial.print(command);
-        Serial.println("]");
-        
-        int space1 = command.indexOf(' ');
-        int space2 = command.indexOf(' ', space1 + 1);
-
-        if (space1 != -1 && space2 != -1) {
-            int motorID = command.substring(space1 + 1, space2).toInt();
-            int current = command.substring(space2 + 1).toInt();
-            myRobot.setSingleMotorCurrent(motorID, current);
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use 'motor <id> <current_in_mA>'.");
+            Serial.println("  [ERROR] Invalid format. Use: group <group_name> <radians>");
         }
 
-    } else if (command.startsWith("jpos ")) {
-        // Serial.println("--> Command received: [jpos]"); // 打印太多，先註釋掉
+    // --- System & Calibration ---
 
-        float angles[NUM_ROBOT_MOTORS];
-        int count = 0;
-        
-        // 使用一個指針來高效地解析字串
-        const char* p = command.c_str() + 5; // 跳過 "jpos "
-
-        // 循環解析12個浮點數
-        while (count < NUM_ROBOT_MOTORS && *p) {
-            // strtof 會從指針 p 指向的位置開始解析一個浮點數，
-            // 並將 p 更新到已解析部分的末尾。
-            angles[count] = strtof(p, (char**)&p);
-            count++;
-        }
-
-        // 檢查是否成功解析了12個數字
-        if (count == NUM_ROBOT_MOTORS) {
-            myRobot.setAllJointPositions_rad(angles);
-        } else {
-            Serial.printf("  [ERROR] Invalid jpos format. Expected 12 float values, but got %d.\n", count);
-            Serial.println("  Example: 'jpos 0 -0.3 0.6 0 -0.3 0.6 0 -0.3 0.6 0 -0.3 0.6'");
-        }
+    } else if (command == "cal") {
+        Serial.println("--> Command: [cal]");
+        // 【名稱變更】原 `calibrate` 指令
+        myRobot.performManualCalibration();
 
     } else if (command == "stop") {
-        Serial.println("--> Command received: [stop]");
+        Serial.println("--> Command: [stop]");
+        // (保留不變) 核心安全指令
         myRobot.setIdle();
 
-    } else if (command == "printon") {
-        Serial.println("--> Command received: [printon]. Enabling extra data printing.");
-        g_enable_extra_prints = true;
-
-    } else if (command == "printoff") {
-        Serial.println("--> Command received: [printoff]. Disabling extra data printing.");
-        g_enable_extra_prints = false;
-
     } else if (command == "reboot") {
-        Serial.println("--> Command received: [reboot]. Rebooting now...");
+        Serial.println("--> Command: [reboot]");
+        // (保留不變)
         delay(100);
         #ifdef __arm__
         SCB_AIRCR = 0x05FA0004;
         #endif
 
-    } else if (command == "resetvel") {
-    Serial.println("--> Command received: [resetvel]. Resetting velocity estimation.");
-    myAHRS.resetVelocity();
+    // --- Testing & Debugging ---
+    
+    } else if (command.startsWith("test_pid ")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        int space1 = command.indexOf(' ');
+        int space2 = command.indexOf(' ', space1 + 1);
+        if (space1 != -1 && space2 != -1) {
+            int motorID = command.substring(space1 + 1, space2).toInt();
+            float angle_rad = command.substring(space2 + 1).toFloat();
+            // 【新增功能】呼叫舊版的單環 PID 控制器，用於性能比較和調試
+            myRobot.setTargetPositionPID(motorID, angle_rad);
+        } else {
+            Serial.println("  [ERROR] Invalid format. Use: test_pid <id> <radians>");
+        }
 
-    } else {
-        Serial.print("  [ERROR] Unknown command: ");
-        Serial.println(command);
+    } else if (command.startsWith("test_wiggle ")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        // 【名稱變更】原 `wiggle` 指令
+        int motorID = command.substring(12).toInt();
+        myRobot.startWiggleTest(motorID);
+
+    } else if (command.startsWith("raw ")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        int space1 = command.indexOf(' ');
+        int space2 = command.indexOf(' ', space1 + 1);
+        if (space1 != -1 && space2 != -1) {
+            int motorID = command.substring(space1 + 1, space2).toInt();
+            int current = command.substring(space2 + 1).toInt();
+            // 【名稱變更】原 `motor` 指令
+            myRobot.setSingleMotorCurrent(motorID, current);
+        } else {
+            Serial.println("  [ERROR] Invalid format. Use: raw <id> <current_mA>");
+        }
+
+    } else if (command.startsWith("print ")) {
+        // 【功能整合】將 `printon` 和 `printoff` 合併
+        String arg = command.substring(6);
+        if (arg == "on") {
+            Serial.println("--> Command: [print on]. Enabling extra data printing.");
+            g_enable_extra_prints = true;
+        } else if (arg == "off") {
+            Serial.println("--> Command: [print off]. Disabling extra data printing.");
+            g_enable_extra_prints = false;
+        } else {
+            Serial.println("  [ERROR] Invalid format. Use: print <on|off>");
+        }
+
+    } else if (command.startsWith("monitor ")) {
+        // 截取 "monitor " 後面的模式字串
+        String mode_str = command.substring(8);
+        mode_str.trim(); // 去掉前後可能存在的空格
+
+        // 根據模式字串，呼叫 TelemetrySystem 中對應的設定函式
+        if (mode_str == "human") {
+            myTelemetry.setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
+        } else if (mode_str == "csv") {
+            myTelemetry.setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
+        } else if (mode_str == "dashboard") {
+            myTelemetry.setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
+        } else {
+            // 如果模式無效，給出錯誤提示
+            Serial.println("  [ERROR] Unknown monitor mode. Use: human, csv, or dashboard");
+        } 
+
+    } else if (command.startsWith("freq ")) {
+        int hz = command.substring(5).toInt();
+        if (hz > 0 && hz <= 100) { // 設定一個合理的頻率上下限
+            g_print_interval_millis = 1000 / hz;
+            Serial.printf("--> [OK] Monitor frequency set to %d Hz (interval: %ld ms).\n", hz, g_print_interval_millis);
+        } else {
+            Serial.println("  [ERROR] Invalid frequency. Please use a value between 1 and 100.");
+        }
+    
+    } else if (command.startsWith("focus ")) {
+        // 截取 "focus " 後面的參數
+        String arg = command.substring(6);
+        arg.trim(); // 去掉前後空格
+
+        // 如果參數是 'off'，則取消焦點
+        if (arg == "off") {
+            myTelemetry.setFocusMotor(-1); // -1 在 TelemetrySystem 中被定義為"取消焦點"
+        } else {
+            // 檢查輸入是否為有效的數字（包括負號開頭的情況）
+            // 這可以防止 'focus abc' 這樣的指令被 toInt() 錯誤地轉換為 0
+            bool is_valid_number = false;
+            if (arg.length() > 0) {
+                if (isDigit(arg.charAt(0)) || (arg.charAt(0) == '-' && arg.length() > 1 && isDigit(arg.charAt(1)))) {
+                    is_valid_number = true;
+                }
+            }
+
+            if (is_valid_number) {
+                int motorID = arg.toInt();
+                myTelemetry.setFocusMotor(motorID); // 將ID傳給遙測系統
+            } else {
+                 Serial.println("  [ERROR] Invalid argument. Use a motor ID number or 'off'.");
+            }
+        }
     }
+
+    // --- Fallback for Unknown Commands ---
+    else {
+        Serial.printf("  [ERROR] Unknown command: '%s'\n", command.c_str());
+    }
+
 }
 
 /**
