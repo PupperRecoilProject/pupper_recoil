@@ -63,6 +63,13 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     integral_error_vel.fill(0.0f); // **** NEW **** 初始化速度積分項
     _target_currents_mA.fill(0);
     is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
+
+    //【新增】初始化參數名到成員變數指標的映射表
+    _param_map["pos_kp"] = &CascadeParams::pos_kp;
+    _param_map["vel_kp"] = &CascadeParams::vel_kp;
+    _param_map["vel_ki"] = &CascadeParams::vel_ki;
+    _param_map["max_vel"] = &CascadeParams::max_target_vel;
+    _param_map["max_int"] = &CascadeParams::max_integral_err;
 }
 
 void RobotController::begin() {
@@ -70,6 +77,12 @@ void RobotController::begin() {
     wiggle_frequency_hz = 0.5;
     wiggle_kp = 20.0;
     // 所有與 Homing 相關的初始化都已移除
+
+    // 【新增】初始化參數系統
+    _global_params.reset(_system_default_params);
+    for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+        _motor_params[i].reset(_global_params);
+    }
 }
 
 
@@ -79,7 +92,7 @@ void RobotController::update() {
             setAllMotorsIdle();
             break;
         case ControlMode::POSITION_CONTROL:
-        case ControlMode::JOINT_ARRAY_CONTROL:
+        //case ControlMode::JOINT_ARRAY_CONTROL: //舊版功能棄用
             updatePositionControl();
             break;
         case ControlMode::CASCADE_CONTROL: // **** NEW ****
@@ -336,7 +349,7 @@ const char* RobotController::getModeString() {
         case ControlMode::CASCADE_CONTROL:  return "CASCADE_CONTROL (級聯控制)"; // **** NEW ****
         case ControlMode::WIGGLE_TEST:      return "WIGGLE_TEST (擺動測試)";
         case ControlMode::CURRENT_MANUAL_CONTROL:   return "CURRENT_MANUAL_CONTROL (手動控制)";
-        case ControlMode::JOINT_ARRAY_CONTROL: return "JOINT_ARRAY_CONTROL (高層陣列控制)";
+        //case ControlMode::JOINT_ARRAY_CONTROL: return "JOINT_ARRAY_CONTROL (高層陣列控制)";   // 舊版功能棄用
         case ControlMode::ERROR:            return "ERROR (錯誤)";
         default:                            return "UNKNOWN (未知)";
     }
@@ -438,6 +451,7 @@ void RobotController::updateCascadeControl() {
     const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H;
 
     for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        const auto& params = _motor_params[i]; // 【修改】從讀取單一全域變數，改為讀取對應馬達的參數結構
         // --- 數據採集 ---
         float current_pos = getMotorPosition_rad(i);
         float current_vel = getMotorVelocity_rad(i);
@@ -455,20 +469,19 @@ void RobotController::updateCascadeControl() {
 
         // --- 外環: 位置控制器 (P-Controller) ---
         // 計算目標速度，位置誤差越大，期望的修正速度就越快
-        float target_vel = CASCADE_POS_KP * pos_error;
-        target_vel = constrain(target_vel, -CASCADE_MAX_TARGET_VELOCITY_RAD_S, CASCADE_MAX_TARGET_VELOCITY_RAD_S);
-
+        float target_vel = params.pos_kp * pos_error;
+        target_vel = constrain(target_vel, -params.max_target_vel, params.max_target_vel);
         // --- 內環: 速度控制器 (PI-Controller) ---
         float vel_error = target_vel - current_vel;
 
         // 積分項累加
         integral_error_vel[i] += vel_error * dt;
         // 積分抗飽和 (Anti-Windup)
-        integral_error_vel[i] = constrain(integral_error_vel[i], -CASCADE_INTEGRAL_MAX_ERROR_RAD, CASCADE_INTEGRAL_MAX_ERROR_RAD);
+        integral_error_vel[i] = constrain(integral_error_vel[i], -params.max_integral_err, params.max_integral_err);
 
         // PI 計算
-        float p_term = CASCADE_VEL_KP * vel_error;
-        float i_term = CASCADE_VEL_KI * integral_error_vel[i];
+        float p_term = params.vel_kp * vel_error;
+        float i_term = params.vel_ki * integral_error_vel[i];
 
         // 總回饋電流
         float feedback_current = p_term + i_term;
@@ -610,4 +623,158 @@ int16_t RobotController::getTargetCurrent_mA(int motorID) {
         return _target_currents_mA[motorID];
     }
     return 0;
+}
+
+
+
+// =================================================================
+//   【新增】參數調校系統的完整實現
+// =================================================================
+
+bool RobotController::parseGroup(const std::string& name, std::vector<int>& ids) {
+    ids.clear();
+    if (name == "hip") {
+        for (int i = 0; i < 4; ++i) ids.push_back(i * 3 + 0);
+    } else if (name == "upper") {
+        for (int i = 0; i < 4; ++i) ids.push_back(i * 3 + 1);
+    } else if (name == "lower") {
+        for (int i = 0; i < 4; ++i) ids.push_back(i * 3 + 2);
+    } else if (name == "leg0") {
+        ids = {0, 1, 2};
+    } else if (name == "leg1") {
+        ids = {3, 4, 5};
+    } else if (name == "leg2") {
+        ids = {6, 7, 8};
+    } else if (name == "leg3") {
+        ids = {9, 10, 11};
+    } else if (name == "leg_front") {
+        ids = {0, 1, 2, 3, 4, 5};
+    } else if (name == "leg_rear") {
+        ids = {6, 7, 8, 9, 10, 11};
+    } else if (name == "all") {
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) ids.push_back(i);
+    } else {
+        return false; // 無效的組名
+    }
+    return true;
+}
+
+void RobotController::setParameter(const std::string& scope_type, const std::string& scope_name, const std::string& param_name, float value) {
+    // 1. 檢查參數名稱是否有效
+    if (_param_map.find(param_name) == _param_map.end()) {
+        Serial.printf("  [ERROR] Invalid parameter name: '%s'\n", param_name.c_str());
+        return;
+    }
+    auto param_ptr = _param_map[param_name];
+
+    // 2. 根據 scope 執行操作
+    if (scope_type == "global") {
+        _global_params.*param_ptr = value; // 使用成員指標來修改對應的參數
+        Serial.printf("--> [OK] Global '%s' set to %.3f. Affects all non-custom motors.\n", param_name.c_str(), value);
+        // 更新所有未被自訂的馬達
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            if (!_motor_params[i].is_custom) {
+                _motor_params[i].*param_ptr = value;
+            }
+        }
+    } else if (scope_type == "motor") {
+        int motor_id = std::stoi(scope_name);
+        if (motor_id >= 0 && motor_id < NUM_ROBOT_MOTORS) {
+            _motor_params[motor_id].*param_ptr = value;
+            _motor_params[motor_id].is_custom = true; // 標記為自訂
+            Serial.printf("--> [OK] Motor %d '%s' set to %.3f.\n", motor_id, param_name.c_str(), value);
+        } else {
+            Serial.printf("  [ERROR] Invalid motor ID: %d\n", motor_id);
+        }
+    } else if (scope_type == "group") {
+        std::vector<int> ids;
+        if (parseGroup(scope_name, ids)) {
+            for (int id : ids) {
+                _motor_params[id].*param_ptr = value;
+                _motor_params[id].is_custom = true; // 標記為自訂
+            }
+            Serial.printf("--> [OK] Group '%s' (%zu motors) '%s' set to %.3f.\n", scope_name.c_str(), ids.size(), param_name.c_str(), value);
+        } else {
+            Serial.printf("  [ERROR] Invalid group name: '%s'\n", scope_name.c_str());
+        }
+    }
+}
+
+void RobotController::resetParameter(const std::string& scope_type, const std::string& scope_name) {
+    if (scope_type == "global") {
+        _global_params.reset(_system_default_params);
+        Serial.println("--> [OK] Global parameters have been reset to system defaults.");
+        // 同步更新所有非自訂馬達
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            if (!_motor_params[i].is_custom) {
+                _motor_params[i].reset(_global_params);
+            }
+        }
+    } else if (scope_type == "motor") {
+        int motor_id = std::stoi(scope_name);
+        if (motor_id >= 0 && motor_id < NUM_ROBOT_MOTORS) {
+            _motor_params[motor_id].reset(_global_params); // 重置為當前的全域值
+            Serial.printf("--> [OK] Motor %d parameters have been reset to global.\n", motor_id);
+        } else {
+             Serial.printf("  [ERROR] Invalid motor ID: %d\n", motor_id);
+        }
+    } else if (scope_type == "group") {
+        std::vector<int> ids;
+        // 特別處理 "all"，它重置所有馬達和全域參數
+        if (scope_name == "all") {
+             _global_params.reset(_system_default_params);
+             for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+                _motor_params[i].reset(_system_default_params);
+             }
+             Serial.println("--> [OK] ALL motor and global parameters have been reset to system defaults.");
+        } else if (parseGroup(scope_name, ids)) {
+            for (int id : ids) {
+                _motor_params[id].reset(_global_params);
+            }
+            Serial.printf("--> [OK] Group '%s' (%zu motors) parameters reset to global.\n", scope_name.c_str(), ids.size());
+        } else {
+            Serial.printf("  [ERROR] Invalid group name: '%s'\n", scope_name.c_str());
+        }
+    }
+}
+
+void RobotController::printParameters(const std::string& scope_type, const std::string& scope_name) {
+    auto print_single_param = [](const CascadeParams& p, int id = -1) {
+        char buf[128];
+        if (id != -1) { // 打印馬達
+            snprintf(buf, sizeof(buf), "Motor %2d %s| P_KP:%-7.2f V_KP:%-7.2f V_KI:%-7.2f | MaxVel:%-5.2f MaxInt:%-5.2f",
+                     id, p.is_custom ? "(*)" : "   ", p.pos_kp, p.vel_kp, p.vel_ki, p.max_target_vel, p.max_integral_err);
+        } else { // 打印全域
+            snprintf(buf, sizeof(buf), "Global    | P_KP:%-7.2f V_KP:%-7.2f V_KI:%-7.2f | MaxVel:%-5.2f MaxInt:%-5.2f",
+                     p.pos_kp, p.vel_kp, p.vel_ki, p.max_target_vel, p.max_integral_err);
+        }
+        Serial.println(buf);
+    };
+
+    if (scope_type == "global") {
+        Serial.println("--- Current Global Cascade Parameters ---");
+        print_single_param(_global_params);
+    } else if (scope_type == "motor") {
+        int motor_id = std::stoi(scope_name);
+        if (motor_id >= 0 && motor_id < NUM_ROBOT_MOTORS) {
+            Serial.printf("--- Current Cascade Parameters for Motor %d ---\n", motor_id);
+            print_single_param(_motor_params[motor_id], motor_id);
+        } else {
+            Serial.printf("  [ERROR] Invalid motor ID: %d\n", motor_id);
+        }
+    } else if (scope_type == "group") {
+        std::vector<int> ids;
+        if (parseGroup(scope_name, ids)) {
+            Serial.printf("--- Current Cascade Parameters for Group '%s' ---\n", scope_name.c_str());
+            if (scope_name == "all") { // all 的情況下，先打印全域
+                print_single_param(_global_params);
+                Serial.println("-----------------------------------------------------------------------------");
+            }
+            for (int id : ids) {
+                print_single_param(_motor_params[id], id);
+            }
+        } else {
+            Serial.printf("  [ERROR] Invalid group name: '%s'\n", scope_name.c_str());
+        }
+    }
 }

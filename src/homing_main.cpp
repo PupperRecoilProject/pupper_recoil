@@ -53,45 +53,47 @@ void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 4000);
 
-    Serial.println("\n--- Pupper Robot Control System ---");
-
-    if (myIMU.begin()) {
-        Serial.println("[SUCCESS] IMU Initialized.");
-        myAHRS.begin(CONTROL_FREQUENCY_HZ);
-    } else {
-        Serial.println("[FAILURE] IMU Initialization Failed! Halting.");
-        while(1);
-    }
-    
-    myMotorControl.begin();
-    Serial.println("[SUCCESS] Motor Controller Initialized.");
-    
-    myRobot.begin();
-    Serial.println("[SUCCESS] Robot Controller Initialized.");
-    myTelemetry.begin();
-    Serial.println("[SUCCESS] Telemetry System Initialized.");
+    Serial.println("\n--- Pupper Robot Control System (v2.0) ---");
     Serial.println("========================================");
-    Serial.println("Commands (press Enter to execute):");
-    Serial.println("--- High-Level Control (using CASCADE controller) ---");
-    Serial.println("  stand         - Robot enters stable standing pose.");
-    Serial.println("  pos <id> <rad> - Set a single motor's position. Smoothly controlled.");
-    Serial.println("  group <g> <rad> - Set a joint group's position (g: hip, upper, lower).");
-    Serial.println(""); // 空行，用於分隔
-    Serial.println("--- System & Calibration ---");
-    Serial.println("  cal           - Perform manual calibration. Must be in IDLE mode.");
-    Serial.println("  stop          - Stop all motors and enter IDLE mode. (SAFETY FIRST!)");
-    Serial.println("  reboot        - Reboot the microcontroller.");
-    Serial.println(""); // 空行
-    Serial.println("--- Testing & Debugging ---");
-    Serial.println("  monitor <mode>        - Set output format (modes: human, csv, dashboard).");
-    Serial.println("  focus <id|off>        - Focus on a motor for all modes (e.g., focus 3, focus off).");
-    Serial.println("  freq <hz>             - Set monitor print frequency (e.g., 1, 10, 50).");
-    Serial.println("--- Low-Level Testing ---");
-    Serial.println("  test_pid <id> <rad> - Test the old SINGLE-LOOP PID controller.");
-    Serial.println("  test_wiggle <id>    - Start wiggle test for a motor.");
-    Serial.println("  raw <id> <mA>       - Manually set raw current for one motor.");
-    Serial.println("  print <on|off>      - Enable/Disable extra data printing.");
-    Serial.println("  postest ...           - Test position control with custom gains.");
+    Serial.println("Syntax: <required>, [optional], on|off (options)");
+    Serial.println("");
+
+    Serial.println("--- 1. Core Control ---");
+    Serial.println("  stand                 - Robot enters stable standing pose.");
+    Serial.println("  pos <id> <rad>          - Move a single motor to a position.");
+    Serial.println("  group <type> <rad>      - Move a joint group (hip, upper, lower).");
+    Serial.println("  stop                  - (SAFETY) Stop all motors and enter IDLE mode.");
+    Serial.println("");
+    
+    Serial.println("--- 2. System & Calibration ---");
+    Serial.println("  cal                   - Perform manual calibration (must be in IDLE).");
+    Serial.println("  reboot                - Reboot the microcontroller.");
+    Serial.println("");
+
+    Serial.println("--- 3. Parameter Tuning (NEW) ---");
+    Serial.println("  set_param <scope> <name> <val> - Set a controller parameter.");
+    Serial.println("    scope: global | motor <id> | group <g_name>");
+    Serial.println("    name : pos_kp, vel_kp, vel_ki, max_vel, max_int");
+    Serial.println("    e.g. : set_param motor 3 vel_kp 650.0");
+    Serial.println("  reset_param <scope>            - Reset parameters.");
+    Serial.println("    scope: global | motor <id> | group <g_name> | all");
+    Serial.println("    e.g. : reset_param motor 3");
+    Serial.println("  get_param [scope]              - Print current parameters.");
+    Serial.println("    scope: global | motor <id> | group <g_name> | all");
+    Serial.println("    e.g. : get_param all");
+    Serial.println("");
+    
+    Serial.println("--- 4. Monitoring & Debugging ---");
+    Serial.println("  monitor <mode>        - Set output format (human, csv, dashboard).");
+    Serial.println("  focus <id|off>        - Focus on a motor's data.");
+    Serial.println("  freq <hz>             - Set monitor print frequency (1-100).");
+    Serial.println("  print <on|off>        - Toggle extra data printing in 'human' mode.");
+    Serial.println("");
+
+    Serial.println("--- 5. Low-Level Testing ---");
+    Serial.println("  raw <id> <mA>         - Manually set raw current for one motor.");
+    Serial.println("  test_wiggle <id>      - Start wiggle test for a motor.");
+    Serial.println("  test_pid <id> <rad>   - Test the old SINGLE-LOOP PID controller.");
     Serial.println("========================================\n");
 
     
@@ -356,6 +358,78 @@ void handleSerialCommand(String command) {
                 myTelemetry.setFocusMotor(motorID); // 將ID傳給遙測系統
             } else {
                  Serial.println("  [ERROR] Invalid argument. Use a motor ID number or 'off'.");
+            }
+        }
+    
+    } else if (command.startsWith("set_param ")) {
+        // 指令格式: set_param <scope_type> <scope_name> <param_name> <value>
+        // 或者     set_param <scope_type> <param_name> <value>  (for global)
+        command.remove(0, 10); // 移除 "set_param "
+        
+        int space1 = command.indexOf(' ');
+        if (space1 == -1) { Serial.println("  [ERROR] Invalid format for set_param."); return; }
+        String scope_type = command.substring(0, space1);
+
+        if (scope_type == "global") {
+            command.remove(0, space1 + 1);
+            int space2 = command.indexOf(' ');
+            if (space2 == -1) { Serial.println("  [ERROR] Invalid format for set_param global."); return; }
+            String param_name = command.substring(0, space2);
+            float value = command.substring(space2 + 1).toFloat();
+            myRobot.setParameter(scope_type.c_str(), "", param_name.c_str(), value);
+        } else if (scope_type == "motor" || scope_type == "group") {
+            command.remove(0, space1 + 1);
+            int space2 = command.indexOf(' ');
+            if (space2 == -1) { Serial.println("  [ERROR] Invalid format for set_param motor/group."); return; }
+            String scope_name = command.substring(0, space2);
+            command.remove(0, space2 + 1);
+            int space3 = command.indexOf(' ');
+            if (space3 == -1) { Serial.println("  [ERROR] Invalid format for set_param motor/group."); return; }
+            String param_name = command.substring(0, space3);
+            float value = command.substring(space3 + 1).toFloat();
+            myRobot.setParameter(scope_type.c_str(), scope_name.c_str(), param_name.c_str(), value);
+        } else {
+            Serial.println("  [ERROR] Invalid scope type. Use: global, motor, or group.");
+        }
+
+    } else if (command.startsWith("reset_param ")) {
+        // 指令格式: reset_param <scope_type> [scope_name]
+        command.remove(0, 12); // 移除 "reset_param "
+        
+        int space1 = command.indexOf(' ');
+        String scope_type, scope_name;
+        if (space1 == -1) { // 只有一個詞，如 "global" 或 "all"
+            scope_type = command;
+            scope_name = "";
+            if (scope_type == "all") { // 特殊處理 all，它其實是 group 的一種
+                 myRobot.resetParameter("group", "all");
+            } else {
+                 myRobot.resetParameter(scope_type.c_str(), scope_name.c_str());
+            }
+        } else { // 有兩個詞，如 "motor 3"
+            scope_type = command.substring(0, space1);
+            scope_name = command.substring(space1 + 1);
+            myRobot.resetParameter(scope_type.c_str(), scope_name.c_str());
+        }
+
+    } else if (command.startsWith("get_param")) {
+        // 指令格式: get_param [scope_type] [scope_name]
+        command.remove(0, 9); // 移除 "get_param"
+        command.trim();
+        
+        if (command.length() == 0) { // 如果後面沒東西，就是 get_param global
+            myRobot.printParameters("global", "");
+        } else {
+            int space1 = command.indexOf(' ');
+            String scope_type, scope_name;
+            if (space1 == -1) { // 只有一個詞，如 "all"
+                scope_type = "group"; // all 被當作一個 group
+                scope_name = command;
+                myRobot.printParameters(scope_type.c_str(), scope_name.c_str());
+            } else { // 兩個詞，如 "motor 3"
+                scope_type = command.substring(0, space1);
+                scope_name = command.substring(space1 + 1);
+                myRobot.printParameters(scope_type.c_str(), scope_name.c_str());
             }
         }
     }

@@ -3,6 +3,9 @@
 
 #include <MotorController.h>
 #include <array> // 引入 C++ 標準陣列容器
+#include <string>   // 為了在 map 中使用字串作為鍵
+#include <vector>   // 為了儲存一組馬達 ID
+#include <map>      // 為了參數名稱到指標的映射
 
 const int NUM_ROBOT_MOTORS = 12;
 const int CONTROL_FREQUENCY_HZ_H = 1000; 
@@ -18,6 +21,23 @@ struct CascadeDebugInfo {
     int16_t target_current_mA;
 };
 
+struct CascadeParams {
+    float pos_kp = 16.0f;
+    float vel_kp = 500.0f;
+    float vel_ki = 0.0f;
+    float max_target_vel = 8.0f;
+    float max_integral_err = 0.5f;
+    bool is_custom = false; //判斷此參數集是否為自訂義
+    void reset(const CascadeParams& source) {
+        pos_kp = source.pos_kp;
+        vel_kp = source.vel_kp;
+        vel_ki = source.vel_ki;
+        max_target_vel = source.max_target_vel;
+        max_integral_err = source.max_integral_err;
+        is_custom = false; // 重置後就不再是自訂的了
+    }
+};
+
 class RobotController {
 public:
     // --- 公開介面 (Public Interface) ---
@@ -29,14 +49,17 @@ public:
         CASCADE_CONTROL,  // 新的級聯控制
         WIGGLE_TEST,      // 擺動測試模式
         CURRENT_MANUAL_CONTROL,   // 手動電流控制模式
-        JOINT_ARRAY_CONTROL, // 關節陣列控制模式 (用於分組控制)
+        //JOINT_ARRAY_CONTROL, // 關節陣列控制模式 (用於分組控制)
         ERROR             // 錯誤模式
     };
     // 用於分組控制的關節類型枚舉
     enum class JointGroup {
         HIP,   // 髖關節 (左右擺動)
         UPPER, // 大腿關節 (前後擺動)
-        LOWER  // 小腿關節 (膝蓋彎曲)
+        LOWER,  // 小腿關節 (膝蓋彎曲)
+        LEG0, LEG1, LEG2, LEG3, // 用於指令解析的特殊標記
+        LEG_FRONT, LEG_REAR, // 代表所有馬達
+        ALL
     };
 
     // 構造函式
@@ -52,7 +75,7 @@ public:
     void setSingleMotorCurrent(int motorID, int16_t current);
     void setIdle();
     void performManualCalibration();     // 手動校準的觸發函式
-    void setAllJointPositions_rad(const float* target_angles); // 設定所有關節的目標角度 (以弧度為單位)
+    //void setAllJointPositions_rad(const float* target_angles); // 設定所有關節的目標角度 (以弧度為單位)
 
     // 按關節類型分組設定目標角度
     void setJointGroupPosition_rad(JointGroup group, float angle_rad);
@@ -72,6 +95,11 @@ public:
 
     CascadeDebugInfo getCascadeDebugInfo(int motorID);
 
+    // --- 全新的參數調校公開接口 ---
+    void setParameter(const std::string& scope_type, const std::string& scope_name, const std::string& param_name, float value);
+    void resetParameter(const std::string& scope_type, const std::string& scope_name);
+    void printParameters(const std::string& scope_type, const std::string& scope_name);
+
 private:
     // --- 私有函式 (Private Methods) ---
 
@@ -83,6 +111,9 @@ private:
     // 輔助函式
     void sendCurrents(int16_t currents[NUM_ROBOT_MOTORS], bool is_ideal); // 統一的指令出口
     void setAllMotorsIdle();
+
+    // 用於解析指令和獲取馬達ID的內部輔助函式 ---
+    bool parseGroup(const std::string& name, std::vector<int>& ids);
 
     // --- 成員變數 (Member Variables) ---
 
@@ -130,16 +161,19 @@ private:
     std::array<int16_t, NUM_ROBOT_MOTORS> _target_currents_mA;
 
     // --- 級聯控制器參數與狀態 ---
-    // 外環: 位置 -> 速度
-    static constexpr float CASCADE_POS_KP = 16.0f;   //12.0
-    // 內環: 速度 -> 電流
-    static constexpr float CASCADE_VEL_KP = 500.0f;  //85.0
-    static constexpr float CASCADE_VEL_KI = 0.0f;    //450.0
-    // 級聯控制安全限制與狀態
-    static constexpr float CASCADE_MAX_TARGET_VELOCITY_RAD_S = 8.0f; //8.0
-    static constexpr float CASCADE_INTEGRAL_MAX_ERROR_RAD = 0.5f;    //0.5
-    std::array<float, NUM_ROBOT_MOTORS> integral_error_vel; // 速度積分項
+    // 儲存每個馬達各自的參數集
+    std::array<CascadeParams, NUM_ROBOT_MOTORS> _motor_params;
+    
+    // 儲存一份 "全域" 參數，用於重置和作為新設定的基礎
+    CascadeParams _global_params;  
 
+    // 儲存一份 "系統預設" 參數，這是硬編碼的，用於完全重置
+    const CascadeParams _system_default_params; 
+    
+    // 為了方便通過字串名稱來修改參數，建立一個映射表
+    std::map<std::string, float CascadeParams::*> _param_map;
+
+    std::array<float, NUM_ROBOT_MOTORS> integral_error_vel; // 速度積分項
     std::array<float, NUM_ROBOT_MOTORS> _target_vel_rad_s;
     std::array<float, NUM_ROBOT_MOTORS> _vel_error_rad_s;
 };
