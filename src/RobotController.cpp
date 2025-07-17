@@ -63,13 +63,6 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     integral_error_vel.fill(0.0f); // **** NEW **** 初始化速度積分項
     _target_currents_mA.fill(0);
     is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
-
-    //【新增】初始化參數名到成員變數指標的映射表
-    _param_map["pos_kp"] = &CascadeParams::pos_kp;
-    _param_map["vel_kp"] = &CascadeParams::vel_kp;
-    _param_map["vel_ki"] = &CascadeParams::vel_ki;
-    _param_map["max_vel"] = &CascadeParams::max_target_vel;
-    _param_map["max_int"] = &CascadeParams::max_integral_err;
 }
 
 void RobotController::begin() {
@@ -77,6 +70,14 @@ void RobotController::begin() {
     wiggle_frequency_hz = 0.5;
     wiggle_kp = 20.0;
     // 所有與 Homing 相關的初始化都已移除
+
+    if (_param_map.empty()) { // 加上判斷，防止重複初始化
+        _param_map["pos_kp"] = &CascadeParams::pos_kp;
+        _param_map["vel_kp"] = &CascadeParams::vel_kp;
+        _param_map["vel_ki"] = &CascadeParams::vel_ki;
+        _param_map["max_vel"] = &CascadeParams::max_target_vel;
+        _param_map["max_int"] = &CascadeParams::max_integral_err;
+    }
 
     // 【新增】初始化參數系統
     _global_params.reset(_system_default_params);
@@ -226,6 +227,20 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
             start_index = 2; // 馬達ID 2, 5, 8, 11
             group_name = "LOWER";
             break;
+        
+        // 這些複雜的組別不由舊的 PID 控制器支援。
+        // 將 start_index 保持為 -1，後續邏輯會處理這個錯誤。
+        case JointGroup::LEG0:
+        case JointGroup::LEG1:
+        case JointGroup::LEG2:
+        case JointGroup::LEG3:
+        case JointGroup::LEG_FRONT:
+        case JointGroup::LEG_REAR:
+        case JointGroup::ALL:
+        default:
+            group_name = "UNSUPPORTED_IN_PID_MODE";
+            start_index = -1;
+            break;
     }
     
     Serial.printf("--> 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
@@ -307,32 +322,35 @@ void RobotController::setJointGroupPositionCascade(JointGroup group, float angle
     }
 
     // 步驟 4: 確定目標 - 根據組別確定起始索引
-    int start_index = -1;
-    const char* group_name = "UNKNOWN";
+    std::string group_str_name;
     switch(group) {
-        case JointGroup::HIP:
-            start_index = 0; // 馬達ID 0, 3, 6, 9
-            group_name = "HIP";
-            break;
-        case JointGroup::UPPER:
-            start_index = 1; // 馬達ID 1, 4, 7, 10
-            group_name = "UPPER";
-            break;
-        case JointGroup::LOWER:
-            start_index = 2; // 馬達ID 2, 5, 8, 11
-            group_name = "LOWER";
-            break;
+        case JointGroup::HIP:       group_str_name = "hip";       break;
+        case JointGroup::UPPER:     group_str_name = "upper";     break;
+        case JointGroup::LOWER:     group_str_name = "lower";     break;
+        case JointGroup::LEG0:      group_str_name = "leg0";      break;
+        case JointGroup::LEG1:      group_str_name = "leg1";      break;
+        case JointGroup::LEG2:      group_str_name = "leg2";      break;
+        case JointGroup::LEG3:      group_str_name = "leg3";      break;
+        case JointGroup::LEG_FRONT: group_str_name = "leg_front"; break;
+        case JointGroup::LEG_REAR:  group_str_name = "leg_rear";  break;
+        case JointGroup::ALL:       group_str_name = "all";       break;
+        // 我們不需要 default，因為我們假設傳入的 enum 是有效的
     }
     
-    Serial.printf("--> [Cascade] 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
-
-    // 步驟 5: 更新目標 - 遍歷並更新屬於該組的馬達的目標位置
-    if (start_index != -1) {
-        for (int i = start_index; i < NUM_ROBOT_MOTORS; i += 3) {
-            target_positions_rad[i] = angle_rad;
+    // 步驟 5: 使用 parseGroup 輔助函式獲取目標馬達 ID 列表
+    std::vector<int> target_ids;
+    if (parseGroup(group_str_name, target_ids)) {
+        Serial.printf("--> [Cascade] 正在設定關節組: %s (%zu motors), 目標角度: %.4f rad\n", group_str_name.c_str(), target_ids.size(), angle_rad);
+        
+        // 步驟 6: 遍歷 ID 列表並設定目標位置
+        for (int id : target_ids) {
+            if (id >= 0 && id < NUM_ROBOT_MOTORS) {
+                target_positions_rad[id] = angle_rad;
+            }
         }
     } else {
-        Serial.println("[錯誤] 無效的關節組別。");
+        // 正常情況下，因為 group enum 是受控的，這裡不會執行
+        Serial.printf("[錯誤] 內部錯誤：無法解析關節組 '%s'。\n", group_str_name.c_str());
     }
 }
 

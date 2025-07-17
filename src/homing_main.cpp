@@ -96,8 +96,34 @@ void setup() {
     Serial.println("  test_pid <id> <rad>   - Test the old SINGLE-LOOP PID controller.");
     Serial.println("========================================\n");
 
+    Serial.println("[SYSTEM] Initializing IMU (LSM6DSO)...");
+    if (myIMU.begin() != 0) { 
+        Serial.println("[FATAL ERROR] IMU initialization FAILED!");
+        Serial.println("System halted. Please check IMU wiring.");
+        while(1) {
+            digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));
+            delay(100);
+        }
+    }
+    Serial.println("[SYSTEM] IMU initialized successfully.");
     
+    Serial.println("[SYSTEM] Initializing Motor Controller...");
+    myMotorControl.begin();
+    Serial.println("[SYSTEM] Motor Controller initialized successfully.");
+
+    myRobot.begin();
+
     digitalWrite(LED_BUILTIN, LOW);
+
+    // --- 同步所有計時器 ---
+    unsigned long now_micros = micros();
+    unsigned long now_millis = millis();
+
+    last_control_time_micros = now_micros;
+    last_print_time_millis = now_millis;
+    
+    Serial.println("[SYSTEM] All timers synchronized. Starting main loop...");
+
 }
 
 
