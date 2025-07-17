@@ -51,8 +51,9 @@ const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad = {
 //   構造函式 與 生命週期函式
 // =================================================================
 
-RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctrl) {
-    mode = ControlMode::IDLE;
+RobotController::RobotController(MotorController* motor_ctrl) 
+    : motors(motor_ctrl), mode(ControlMode::IDLE) 
+{
     direction_multipliers = { 1,  1, -1,
                              -1, -1,  1,
                               1,  1, -1,
@@ -60,9 +61,28 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
     integral_error_rad_s.fill(0.0f);
-    integral_error_vel.fill(0.0f); // **** NEW **** 初始化速度積分項
     _target_currents_mA.fill(0);
-    is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
+    is_joint_calibrated.fill(false);
+    
+    // <<< ADDED: 初始化級聯控制器的預設參數 >>>
+    // 這裡設定的值就是您原本的預設值
+    const CascadeParams default_params = {
+        .c = 16.0f,                       // 外環 P 增益
+        .vel_kp = 500.0f,                 // 內環 P 增益
+        .vel_ki = 0.0f,                   // 內環 I 增益
+        .max_target_velocity_rad_s = 8.0f,// 外環輸出限幅 (目標速度)
+        .integral_max_error_rad = 0.5f    // 積分項作用的位置誤差範圍
+    };
+
+    // 將預設參數應用到所有 12 個馬達
+    for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+        setCascadeControlParams(i, default_params);
+    }
+    
+    // 初始化狀態變數
+    integral_error_vel.fill(0.0f);
+    _target_vel_rad_s.fill(0.0f);
+    _vel_error_rad_s.fill(0.0f);
 }
 
 void RobotController::begin() {
@@ -323,6 +343,18 @@ void RobotController::setJointGroupPositionCascade(JointGroup group, float angle
     }
 }
 
+// <<< ADDED: 實現新增的公開函式，用於設定單一馬達的級聯控制參數 >>>
+void RobotController::setCascadeControlParams(int motorID, const CascadeParams& params) {
+    if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
+        cascade_c[motorID] = params.c;
+        cascade_vel_kp[motorID] = params.vel_kp;
+        cascade_vel_ki[motorID] = params.vel_ki;
+        cascade_max_target_velocity_rad_s[motorID] = params.max_target_velocity_rad_s;
+        cascade_integral_max_error_rad[motorID] = params.integral_max_error_rad;
+    }
+    // 您可以在這裡加入錯誤處理，例如 else { Serial.println("Error: motorID out of range"); }
+}
+
 
 
 // =================================================================
@@ -345,6 +377,23 @@ const char* RobotController::getModeString() {
 bool RobotController::isCalibrated() { /* ... 內容不變 ... */ for(bool h : is_joint_calibrated) if(!h) return false; return true; }
 float RobotController::getMotorPosition_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getPosition_rad(motorID) * direction_multipliers[motorID]; }
 float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getRawVelocity_rad(motorID) * direction_multipliers[motorID]; }
+
+// <<< ADDED: 實現讀取參數的函式 >>>
+CascadeParams RobotController::getCascadeControlParams(int motorID) const {
+    CascadeParams params = {0}; // 初始化為0，作為 motorID 無效時的安全返回值
+
+    if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
+        params.c = cascade_c[motorID];
+        params.vel_kp = cascade_vel_kp[motorID];
+        params.vel_ki = cascade_vel_ki[motorID];
+        params.max_target_velocity_rad_s = cascade_max_target_velocity_rad_s[motorID];
+        params.integral_max_error_rad = cascade_integral_max_error_rad[motorID];
+    }
+    // 如果 motorID 無效，將返回一個所有成員均為0的結構體
+
+    return params;
+}
+
 
 
 
@@ -442,47 +491,55 @@ void RobotController::updateCascadeControl() {
         float current_pos = getMotorPosition_rad(i);
         float current_vel = getMotorVelocity_rad(i);
 
-        // --- 安全檢查 ---
-        if (abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
+        // --- 安全檢查 (與位置控制共用相同的安全限制) ---
+        if (std::abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
             Serial.printf("!!! 安全停機 !!! 馬達 %d 速度 %.2f 超出限制 %.2f rad/s。\n", i, current_vel, POS_CONTROL_MAX_VELOCITY_RAD_S);
             setIdle(); return;
         }
         float pos_error = target_positions_rad[i] - current_pos;
-        if (abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
+        if (std::abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
             Serial.printf("!!! 安全停機 !!! 馬達 %d 位置誤差 %.2f 超出限制 %.2f rad。\n", i, pos_error, POS_CONTROL_MAX_ERROR_RAD);
             setIdle(); return;
         }
 
         // --- 外環: 位置控制器 (P-Controller) ---
-        // 計算目標速度，位置誤差越大，期望的修正速度就越快
-        float target_vel = CASCADE_POS_KP * pos_error;
-        target_vel = constrain(target_vel, -CASCADE_MAX_TARGET_VELOCITY_RAD_S, CASCADE_MAX_TARGET_VELOCITY_RAD_S);
+        // 計算目標速度，使用每個馬達獨立的 'c' 參數
+        float target_vel = pos_error * cascade_c[i];
+
+        // 限制目標速度，使用每個馬達獨立的限速參數
+        target_vel = std::max(-cascade_max_target_velocity_rad_s[i], 
+                              std::min(cascade_max_target_velocity_rad_s[i], target_vel));
 
         // --- 內環: 速度控制器 (PI-Controller) ---
         float vel_error = target_vel - current_vel;
 
-        // 積分項累加
-        integral_error_vel[i] += vel_error * dt;
-        // 積分抗飽和 (Anti-Windup)
-        integral_error_vel[i] = constrain(integral_error_vel[i], -CASCADE_INTEGRAL_MAX_ERROR_RAD, CASCADE_INTEGRAL_MAX_ERROR_RAD);
+        // 積分項累加，帶條件性抗飽和 (Anti-Windup)
+        // 只有當位置誤差在允許範圍內時，才累加積分項
+        if (std::abs(pos_error) < cascade_integral_max_error_rad[i]) {
+             integral_error_vel[i] += vel_error * dt;
+        } else {
+             // 當位置誤差過大時，重置積分項，避免在遠離目標時產生過大的積分修正
+             integral_error_vel[i] = 0.0f;
+        }
 
-        // PI 計算
-        float p_term = CASCADE_VEL_KP * vel_error;
-        float i_term = CASCADE_VEL_KI * integral_error_vel[i];
+        // PI 計算，使用每個馬達獨立的 'vel_kp' 和 'vel_ki'
+        float p_term = cascade_vel_kp[i] * vel_error;
+        float i_term = cascade_vel_ki[i] * integral_error_vel[i];
 
         // 總回饋電流
         float feedback_current = p_term + i_term;
         
         // --- 摩擦力補償 (同樣適用於級聯控制) ---
         float friction_comp_current = 0;
-        if (abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
+        if (std::abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && std::abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
             friction_comp_current = copysignf(FRICTION_STATIC_COMP_mA, feedback_current);
         } else {
             friction_comp_current = copysignf(FRICTION_KINETIC_COMP_mA, current_vel);
         }
 
-        _target_currents_mA[i] = (int16_t)(feedback_current + friction_comp_current);
+        _target_currents_mA[i] = static_cast<int16_t>(feedback_current + friction_comp_current);
 
+        // 保存除錯資訊
         _target_vel_rad_s[i] = target_vel;
         _vel_error_rad_s[i] = vel_error;
     }
@@ -499,7 +556,7 @@ CascadeDebugInfo RobotController::getCascadeDebugInfo(int motorID) {
     info.pos_error_rad     = info.target_pos_rad - info.current_pos_rad;
     info.target_vel_rad_s  = _target_vel_rad_s[motorID];
     info.current_vel_rad_s = getMotorVelocity_rad(motorID);
-    info.vel_error_rad_s   = _vel_error_rad_s[motorID];
+    info.vel_error_rad_s   = info.target_vel_rad_s - info.current_vel_rad_s; // Corrected this line
     info.target_current_mA = _target_currents_mA[motorID];
     return info;
 }

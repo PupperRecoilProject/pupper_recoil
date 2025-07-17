@@ -24,8 +24,8 @@ const long CONTROL_INTERVAL_MICROS = 1000000 / CONTROL_FREQUENCY_HZ;
 unsigned long last_control_time_micros = 0;
 
 const int PRINT_FREQUENCY_HZ = 2;
-long g_print_interval_millis = 1000 / 2;
-long last_print_time_millis = 0;
+unsigned long g_print_interval_millis = 1000 / 2;
+unsigned long last_print_time_millis = 0;
 
 // 用於控制是否打印額外數據的旗標
 bool g_enable_extra_prints = false;
@@ -77,6 +77,10 @@ void setup() {
     Serial.println("  pos <id> <rad> - Set a single motor's position. Smoothly controlled.");
     Serial.println("  group <g> <rad> - Set a joint group's position (g: hip, upper, lower).");
     Serial.println(""); // 空行，用於分隔
+    Serial.println("--- Cascade Controller Tuning ---");
+    Serial.println("  set_param <id> <name> <val> - Set a param (name: c, kp, ki, max_vel, max_err)");
+    Serial.println("  get_params <id|all>         - Get params for a motor or all motors.");
+    Serial.println(""); // 空行
     Serial.println("--- System & Calibration ---");
     Serial.println("  cal           - Perform manual calibration. Must be in IDLE mode.");
     Serial.println("  stop          - Stop all motors and enter IDLE mode. (SAFETY FIRST!)");
@@ -238,6 +242,78 @@ void handleSerialCommand(String command) {
             }
         } else {
             Serial.println("  [ERROR] Invalid format. Use: group <group_name> <radians>");
+        }
+     // --- << NEW >> Cascade Controller Tuning ---
+
+    } else if (command.startsWith("set_param ")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        int space1 = command.indexOf(' ');
+        int space2 = command.indexOf(' ', space1 + 1);
+        int space3 = command.indexOf(' ', space2 + 1);
+        if (space1 == -1 || space2 == -1 || space3 == -1) {
+            Serial.println("  [ERROR] Invalid format. Use: set_param <id> <name> <value>");
+            return;
+        }
+
+        int motorID = command.substring(space1 + 1, space2).toInt();
+        String paramName = command.substring(space2 + 1, space3);
+        float value = command.substring(space3 + 1).toFloat();
+        paramName.toLowerCase();
+
+        // **重要**: 此處假設 getCascadeControlParams 函式已存在
+        CascadeParams current_params = myRobot.getCascadeControlParams(motorID);
+        
+        bool param_found = true;
+        if (paramName == "c") {
+            current_params.c = value;
+        } else if (paramName == "kp" || paramName == "vel_kp") {
+            current_params.vel_kp = value;
+        } else if (paramName == "ki" || paramName == "vel_ki") {
+            current_params.vel_ki = value;
+        } else if (paramName == "max_vel") {
+            current_params.max_target_velocity_rad_s = value;
+        } else if (paramName == "max_err") {
+            current_params.integral_max_error_rad = value;
+        } else {
+            param_found = false;
+            Serial.println("  [ERROR] Unknown param name. Use: c, kp, ki, max_vel, max_err");
+        }
+
+        if (param_found) {
+            myRobot.setCascadeControlParams(motorID, current_params);
+            Serial.printf("--> [OK] Motor %d param '%s' set to %.4f\n", motorID, paramName.c_str(), value);
+        }
+
+    } else if (command.startsWith("get_params")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        String arg = command.substring(10).trim();
+        if (arg == "all") {
+            Serial.println("--- Cascade Parameters for All Motors ---");
+            Serial.println("ID |    c    |  vel_kp |  vel_ki | max_vel | max_err");
+            Serial.println("---+---------+---------+---------+---------+---------");
+            for (int i=0; i < NUM_ROBOT_MOTORS; i++) {
+                // **重要**: 此處假設 getCascadeControlParams 函式已存在
+                CascadeParams params = myRobot.getCascadeControlParams(i);
+                char buf[120];
+                snprintf(buf, sizeof(buf), "%2d | %7.2f | %7.1f | %7.1f | %7.2f | %7.2f",
+                         i, params.c, params.vel_kp, params.vel_ki, 
+                         params.max_target_velocity_rad_s, params.integral_max_error_rad);
+                Serial.println(buf);
+            }
+        } else {
+            int motorID = arg.toInt();
+            if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
+                // **重要**: 此處假設 getCascadeControlParams 函式已存在
+                CascadeParams params = myRobot.getCascadeControlParams(motorID);
+                Serial.printf("--- Cascade Parameters for Motor %d ---\n", motorID);
+                Serial.printf("  c:       %.4f\n", params.c);
+                Serial.printf("  vel_kp:  %.4f\n", params.vel_kp);
+                Serial.printf("  vel_ki:  %.4f\n", params.vel_ki);
+                Serial.printf("  max_vel: %.4f\n", params.max_target_velocity_rad_s);
+                Serial.printf("  max_err: %.4f\n", params.integral_max_error_rad);
+            } else {
+                Serial.println("  [ERROR] Invalid format. Use: get_params <id> or get_params all");
+            }
         }
 
     // --- System & Calibration ---
