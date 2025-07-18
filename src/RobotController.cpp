@@ -448,6 +448,10 @@ void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float u
     }
 }
 
+void RobotController::setAllJointsCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad) {
+    setRobotPoseCascade(pose_rad);
+}
+
 
 // =================================================================
 //   參數管理後端 (Parameter Management Backend)
@@ -517,6 +521,13 @@ const char* RobotController::getModeString() {
 bool RobotController::isCalibrated() { /* ... 內容不變 ... */ for(bool h : is_joint_calibrated) if(!h) return false; return true; }
 float RobotController::getMotorPosition_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getPosition_rad(motorID) * direction_multipliers[motorID]; }
 float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getRawVelocity_rad(motorID) * direction_multipliers[motorID]; }
+
+float RobotController::getTargetPosition_rad(int motorID) const {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
+        return 0.0f;
+    }
+    return target_positions_rad[motorID];
+}
 
 // <<< ADDED: 新的 getEffectiveParams 函式實作 >>>
 CascadeParams RobotController::getEffectiveParams(int motorID) const {

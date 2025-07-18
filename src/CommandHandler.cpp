@@ -57,14 +57,14 @@ void CommandHandler::executeCommand(String command) {
     } else if (action == "reset") {
         handleResetCommand(args);
     } 
-    // --- 在此階段，我們只實現 set, get, reset ---
-    // --- 其他指令暫時回覆 "未實現" ---
-    else if (action == "move" || action == "stand" || action == "status" ||
-             action == "mode" || action == "freq" || action == "focus" ||
-             action == "cal" || action == "stop" || action == "reboot" ||
-             action == "raw" || action == "test")
-    {
-        Serial.printf("  [INFO] Command '%s' will be implemented in a later stage.\n", action.c_str());
+    else if (action == "move" || action == "stand") {
+        handleMoveCommand(args);
+    } else if (action == "mode" || action == "freq" || action == "focus") {
+        handleConfigCommand(args);
+    } else if (action == "cal" || action == "stop" || action == "reboot" || action == "status") {
+        handleSystemCommand(args);
+    } else if (action == "raw" || action == "test") {
+        handleTestCommand(args);
     }
     else {
         Serial.printf("  [ERROR] Unknown command: '%s'\n", command.c_str());
@@ -218,4 +218,184 @@ void CommandHandler::printParams(int motor_id) {
              motor_id, params.c, params.vel_kp, params.vel_ki, 
              params.max_target_velocity_rad_s, params.integral_max_error_rad);
     Serial.println(buf);
+}
+
+void CommandHandler::handleMoveCommand(const std::vector<String>& args) {
+    String action = args[0];
+    
+    // --- 特例: stand ---
+    if (action == "stand") {
+        if (args.size() != 1) {
+            Serial.println("  [ERROR] 'stand' command takes no arguments.");
+            return;
+        }
+        Serial.println("--> Command: [stand]");
+        _robot->setRobotPoseCascade(manual_calibration_pose_rad);
+        return;
+    }
+    
+    // --- 一般 move 指令 ---
+    // 語法: move <target> [params...]
+    if (args.size() < 3) {
+        Serial.println("  [ERROR] Invalid format. Use: move <target> <angle(s)>");
+        return;
+    }
+
+    String target_str = args[1];
+
+    // --- 處理 move all ---
+    if (target_str == "all") {
+        if (args.size() == 3) { // move all <angle>
+            float angle = args[2].toFloat();
+            std::array<float, NUM_ROBOT_MOTORS> all_angles;
+            all_angles.fill(angle);
+            _robot->setAllJointsCascade(all_angles);
+            Serial.printf("  [OK] Moving all motors to %.4f rad\n", angle);
+        } else if (args.size() == 14) { // move all <a0> <a1> ... <a11>
+            std::array<float, NUM_ROBOT_MOTORS> all_angles;
+            for(int i=0; i < NUM_ROBOT_MOTORS; ++i) {
+                all_angles[i] = args[i+2].toFloat();
+            }
+            _robot->setAllJointsCascade(all_angles);
+            Serial.println("  [OK] Setting all motor positions from list.");
+        } else {
+            Serial.println("  [ERROR] 'move all' requires 1 or 12 angle arguments.");
+        }
+        return;
+    }
+
+    // --- 處理 move m<id> ---
+    if (target_str.charAt(0) == 'm') {
+        if (args.size() != 3) { /* ... error handling ... */ return; }
+        int motor_id = target_str.substring(1).toInt();
+        String angle_str = args[2];
+        float angle_rad;
+
+        if (angle_str.startsWith("+") || angle_str.startsWith("-")) {
+            // 相對移動
+            float current_target = _robot->getTargetPosition_rad(motor_id);
+            float delta = angle_str.toFloat();
+            angle_rad = current_target + delta;
+        } else {
+            // 絕對移動
+            angle_rad = angle_str.toFloat();
+        }
+        _robot->setTargetPositionCascade(motor_id, angle_rad);
+        Serial.printf("  [OK] Moving motor %d to %.4f rad\n", motor_id, angle_rad);
+        return;
+    }
+    
+    // --- 處理 move g<name> ---
+    if (target_str.charAt(0) == 'g') {
+        String group_name_short = target_str.substring(1);
+        if (group_name_short.startsWith("l")) { // 腿組: gl0, gl1, etc.
+             if (args.size() != 5) {
+                Serial.println("  [ERROR] Leg group move requires 3 angles. Use: move gl<id> <h> <u> <l>");
+                return;
+             }
+             int leg_id = group_name_short.substring(1).toInt();
+             float h = args[2].toFloat();
+             float u = args[3].toFloat();
+             float l = args[4].toFloat();
+             _robot->setLegJointsCascade(leg_id, h, u, l);
+             Serial.printf("  [OK] Moving leg %d to (H:%.2f, U:%.2f, L:%.2f)\n", leg_id, h, u, l);
+
+        } else if (group_name_short == "f" || group_name_short == "r") { // 腿對
+            if (args.size() != 5) { /* ... error handling ... */ return; }
+            RobotController::JointGroup pair_group = (group_name_short == "f") ? RobotController::JointGroup::LEG_FRONT : RobotController::JointGroup::LEG_REAR;
+            float h = args[2].toFloat();
+            float u = args[3].toFloat();
+            float l = args[4].toFloat();
+            _robot->setLegPairCascade(pair_group, h, u, l);
+             Serial.printf("  [OK] Moving leg pair '%s' to (H:%.2f, U:%.2f, L:%.2f)\n", group_name_short.c_str(), h, u, l);
+             
+        } else { // 功能組: gh, gu, gl
+            if (args.size() != 3) { /* ... error handling ... */ return; }
+            RobotController::JointGroup func_group;
+            if(group_name_short == "h") func_group = RobotController::JointGroup::HIP;
+            else if(group_name_short == "u") func_group = RobotController::JointGroup::UPPER;
+            else if(group_name_short == "l") func_group = RobotController::JointGroup::LOWER;
+            else { Serial.printf("  [ERROR] Unknown functional group: %s\n", target_str.c_str()); return; }
+            float angle = args[2].toFloat();
+            _robot->setJointGroupPositionCascade(func_group, angle);
+            Serial.printf("  [OK] Moving group '%s' to %.4f rad\n", target_str.c_str(), angle);
+        }
+        return;
+    }
+
+    Serial.printf("  [ERROR] Unknown target for move: '%s'\n", target_str.c_str());
+}
+
+void CommandHandler::handleConfigCommand(const String& action, const std::vector<String>& args) {
+    if (action == "mode") {
+        if (args.size() != 2) { Serial.println("  [ERROR] Use: mode <h/c/d>"); return; }
+        String mode_char = args[1];
+        if (mode_char == "h") _telemetry->setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
+        else if (mode_char == "c") _telemetry->setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
+        else if (mode_char == "d") _telemetry->setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
+        else { Serial.println("  [ERROR] Unknown mode. Use h, c, or d."); return; }
+        Serial.printf("  [OK] Telemetry mode set to %s.\n", args[1].c_str());
+
+    } else if (action == "freq") {
+        if (args.size() != 2) { Serial.println("  [ERROR] Use: freq <hz>"); return; }
+        int hz = args[1].toInt();
+        if (hz > 0 && hz <= 1000) {
+            g_print_interval_millis = 1000 / hz;
+            Serial.printf("  [OK] Monitor frequency set to %d Hz.\n", hz);
+        } else {
+            Serial.println("  [ERROR] Invalid frequency.");
+        }
+
+    } else if (action == "focus") {
+        if (args.size() != 2) { Serial.println("  [ERROR] Use: focus m<id> | off"); return; }
+        String target_str = args[1];
+        if (target_str == "off") {
+            _telemetry->setFocusMotor(-1);
+            Serial.println("  [OK] Telemetry focus turned off.");
+        } else if (target_str.charAt(0) == 'm') {
+            int motor_id = target_str.substring(1).toInt();
+            _telemetry->setFocusMotor(motor_id);
+            Serial.printf("  [OK] Telemetry focused on motor %d.\n", motor_id);
+        } else {
+            Serial.println("  [ERROR] Invalid focus target.");
+        }
+    }
+}
+
+void CommandHandler::handleSystemCommand(const String& action, const std::vector<String>& args) {
+    if (action == "status") {
+        _telemetry->printHumanReadableStatus();
+    } else if (action == "cal") {
+        _robot->performManualCalibration();
+    } else if (action == "stop") {
+        _robot->setIdle();
+    } else if (action == "reboot") {
+        Serial.println("--> Rebooting...");
+        delay(100);
+        #ifdef __arm__
+        SCB_AIRCR = 0x05FA0004;
+        #endif
+    }
+}
+
+void CommandHandler::handleTestCommand(const String& action, const std::vector<String>& args) {
+    if (action == "raw") {
+        // 語法: raw m<id> <mA>
+        if (args.size() != 3 || args[1].charAt(0) != 'm') {
+            Serial.println("  [ERROR] Use: raw m<id> <mA>");
+            return;
+        }
+        int motor_id = args[1].substring(1).toInt();
+        int16_t current = args[2].toInt();
+        _robot->setSingleMotorCurrent(motor_id, current);
+
+    } else if (action == "test") {
+        // 語法: test wiggle m<id>
+        if (args.size() != 3 || args[1] != "wiggle" || args[2].charAt(0) != 'm') {
+            Serial.println("  [ERROR] Use: test wiggle m<id>");
+            return;
+        }
+        int motor_id = args[2].substring(1).toInt();
+        _robot->startWiggleTest(motor_id);
+    }
 }

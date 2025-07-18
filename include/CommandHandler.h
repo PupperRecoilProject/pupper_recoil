@@ -26,6 +26,12 @@ private:
     void handleResetCommand(const std::vector<String>& args);
     void printParams(int motor_id);    
 
+    // 第三階段新增
+    void handleMoveCommand(const std::vector<String>& args);
+    void handleConfigCommand(const std::vector<String>& args); // 用於處理 mode, freq, focus
+    void handleSystemCommand(const std::vector<String>& args); // 用於處理 cal, stop, reboot, status
+    void handleTestCommand(const std::vector<String>& args); // 用於處理 raw, test wiggle
+
     // 指向核心控制物件的指標
     RobotController* _robot;
     TelemetrySystem* _telemetry;

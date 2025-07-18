@@ -100,9 +100,10 @@ public:
 
     // --- 基於串級控制的指令函式 ---
     void setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad);
+
     void setTargetPositionCascade(int motorID, float angle_rad);
     void setJointGroupPositionCascade(JointGroup group, float angle_rad);
-
+    void setAllJointsCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad);
     // ---新增關節組(整隻腿)---
     void setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad);
     void setLegPairCascade(JointGroup group, float hip_rad, float upper_rad, float lower_rad);
@@ -118,6 +119,7 @@ public:
     bool isCalibrated();
     float getMotorPosition_rad(int motorID);
     float getMotorVelocity_rad(int motorID);
+    float getTargetPosition_rad(int motorID) const;
     int16_t getTargetCurrent_mA(int motorID);
     CascadeDebugInfo getCascadeDebugInfo(int motorID);
 
