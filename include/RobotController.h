@@ -46,7 +46,13 @@ public:
     enum class JointGroup {
         HIP,
         UPPER,
-        LOWER
+        LOWER,
+        LEG0,
+        LEG1,
+        LEG2,
+        LEG3,
+        LEG_FRONT,
+        LEG_REAR
     };
 
     // 構造函式
@@ -69,6 +75,10 @@ public:
     void setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad);
     void setTargetPositionCascade(int motorID, float angle_rad);
     void setJointGroupPositionCascade(JointGroup group, float angle_rad);
+
+    // ---新增關節組(整隻腿)---
+    void setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad);
+    void setLegPairCascade(JointGroup group, float hip_rad, float upper_rad, float lower_rad);
 
     // <<< ADDED: 新增的公開函式，用於設定單一馬達的級聯控制參數
     void setCascadeControlParams(int motorID, const CascadeParams& params);

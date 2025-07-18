@@ -233,6 +233,15 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
             start_index = 2; // 馬達ID 2, 5, 8, 11
             group_name = "LOWER";
             break;
+                // <<< ADDED: 為新群組增加錯誤提示 >>>
+        case JointGroup::LEG0:
+        case JointGroup::LEG1:
+        case JointGroup::LEG2:
+        case JointGroup::LEG3:
+        case JointGroup::LEG_FRONT:
+        case JointGroup::LEG_REAR:
+             Serial.println("[錯誤] 腿部群組需要3個角度，請使用 'leg' 或 'leg_pair' 指令。");
+             return; // 直接返回，不執行後續操作  
     }
     
     Serial.printf("--> 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
@@ -329,6 +338,15 @@ void RobotController::setJointGroupPositionCascade(JointGroup group, float angle
             start_index = 2; // 馬達ID 2, 5, 8, 11
             group_name = "LOWER";
             break;
+        // <<< ADDED: 為新群組增加錯誤提示 >>>
+        case JointGroup::LEG0:
+        case JointGroup::LEG1:
+        case JointGroup::LEG2:
+        case JointGroup::LEG3:
+        case JointGroup::LEG_FRONT:
+        case JointGroup::LEG_REAR:
+             Serial.println("[錯誤] 腿部群組需要3個角度，請使用 'leg' 或 'leg_pair' 指令。");
+             return; // 直接返回
     }
     
     Serial.printf("--> [Cascade] 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
@@ -355,7 +373,84 @@ void RobotController::setCascadeControlParams(int motorID, const CascadeParams& 
     // 您可以在這裡加入錯誤處理，例如 else { Serial.println("Error: motorID out of range"); }
 }
 
+void RobotController::setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad) {
+    // 步驟 1: 安全檢查
+    if (leg_id < 0 || leg_id > 3) {
+        Serial.println("[錯誤] 無效的腿部 ID。請使用 0-3。");
+        return;
+    }
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 腿部控制失敗：機器人必須先校準！");
+        return;
+    }
 
+    // 步驟 2: 模式管理 (與其他 Cascade 函式相同)
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行腿部控制。");
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        mode = ControlMode::CASCADE_CONTROL;
+        integral_error_vel.fill(0.0f);
+    }
+    
+    // 步驟 3: 計算並更新目標位置
+    int base_motor_id = leg_id * 3;
+    target_positions_rad[base_motor_id + 0] = hip_rad;    // Hip joint
+    target_positions_rad[base_motor_id + 1] = upper_rad;  // Upper leg joint
+    target_positions_rad[base_motor_id + 2] = lower_rad;  // Lower leg joint
+    
+    Serial.printf("--> [Cascade] 設定腿 %d 關節角度為 (H:%.2f, U:%.2f, L:%.2f) rad。\n", 
+                  leg_id, hip_rad, upper_rad, lower_rad);
+}
+
+// <<< ADDED: 實現控制腿部對的新函式 >>>
+void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float upper_rad, float lower_rad) {
+    // 步驟 1: 安全檢查
+    if (group != JointGroup::LEG_FRONT && group != JointGroup::LEG_REAR) {
+        Serial.println("[錯誤] 此函式僅適用於 LEG_FRONT 或 LEG_REAR。");
+        return;
+    }
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 腿部控制失敗：機器人必須先校準！");
+        return;
+    }
+
+    // 步驟 2: 模式管理
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行腿部對控制。");
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        mode = ControlMode::CASCADE_CONTROL;
+        integral_error_vel.fill(0.0f);
+    }
+
+    // 步驟 3: 根據對稱性更新目標位置
+    const char* group_name = (group == JointGroup::LEG_FRONT) ? "前腿對" : "後腿對";
+    Serial.printf("--> [Cascade] 設定 %s 角度為 (H:%.2f, U:%.2f, L:%.2f) rad (右腿為基準)。\n", 
+                  group_name, hip_rad, upper_rad, lower_rad);
+
+    if (group == JointGroup::LEG_FRONT) {
+        // Front-Right Leg (Leg 0, Motors 0, 1, 2) - 直接使用給定角度
+        target_positions_rad[0] = hip_rad;
+        target_positions_rad[1] = upper_rad;
+        target_positions_rad[2] = lower_rad;
+        // Front-Left Leg (Leg 1, Motors 3, 4, 5) - 鏡像角度
+        target_positions_rad[3] = -hip_rad;
+        target_positions_rad[4] = -upper_rad;
+        target_positions_rad[5] = -lower_rad;
+    } else { // LEG_REAR
+        // Rear-Right Leg (Leg 2, Motors 6, 7, 8) - 直接使用給定角度
+        target_positions_rad[6] = hip_rad;
+        target_positions_rad[7] = upper_rad;
+        target_positions_rad[8] = lower_rad;
+        // Rear-Left Leg (Leg 3, Motors 9, 10, 11) - 鏡像角度
+        target_positions_rad[9] = -hip_rad;
+        target_positions_rad[10] = -upper_rad;
+        target_positions_rad[11] = -lower_rad;
+    }
+}
 
 // =================================================================
 //   狀態與數據獲取函式

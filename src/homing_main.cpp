@@ -76,6 +76,8 @@ void setup() {
     Serial.println("  stand         - Robot enters stable standing pose.");
     Serial.println("  pos <id> <rad> - Set a single motor's position. Smoothly controlled.");
     Serial.println("  group <g> <rad> - Set a joint group's position (g: hip, upper, lower).");
+    Serial.println("  leg <id> <h> <u> <l> - Set a single leg's joints (id:0-3, angles in rad).");
+    Serial.println("  leg_pair <g> <h> <u> <l> - Set leg pair joints (g:front/rear, angles in rad).");
     Serial.println(""); // 空行，用於分隔
     Serial.println("--- Cascade Controller Tuning ---");
     Serial.println("  set_param <id> <name> <val> - Set a param (name: c, kp, ki, max_vel, max_err)");
@@ -434,8 +436,57 @@ void handleSerialCommand(String command) {
                  Serial.println("  [ERROR] Invalid argument. Use a motor ID number or 'off'.");
             }
         }
-    }
+    
+        // --- << NEW >> Leg and Leg Pair Control ---
+    } else if (command.startsWith("leg ")) { // 注意: "leg " 比 "leg_pair " 短，要放在後面檢查
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        int s1 = command.indexOf(' ');
+        int s2 = command.indexOf(' ', s1 + 1);
+        int s3 = command.indexOf(' ', s2 + 1);
+        int s4 = command.indexOf(' ', s3 + 1);
 
+        if (s1!=-1 && s2!=-1 && s3!=-1 && s4!=-1) {
+            int leg_id = command.substring(s1 + 1, s2).toInt();
+            float hip_rad = command.substring(s2 + 1, s3).toFloat();
+            float upper_rad = command.substring(s3 + 1, s4).toFloat();
+            float lower_rad = command.substring(s4 + 1).toFloat();
+            // 呼叫我們在 RobotController 中新增的函式
+            myRobot.setLegJointsCascade(leg_id, hip_rad, upper_rad, lower_rad);
+        } else {
+            Serial.println("  [ERROR] Invalid format. Use: leg <id> <hip_rad> <upper_rad> <lower_rad>");
+        }
+
+    } else if (command.startsWith("leg_pair ")) {
+        Serial.printf("--> Command: [%s]\n", command.c_str());
+        int s1 = command.indexOf(' ');
+        int s2 = command.indexOf(' ', s1 + 1);
+        int s3 = command.indexOf(' ', s2 + 1);
+        int s4 = command.indexOf(' ', s3 + 1);
+        
+        if (s1!=-1 && s2!=-1 && s3!=-1 && s4!=-1) {
+            String group_str = command.substring(s1 + 1, s2);
+            float hip_rad = command.substring(s2 + 1, s3).toFloat();
+            float upper_rad = command.substring(s3 + 1, s4).toFloat();
+            float lower_rad = command.substring(s4 + 1).toFloat();
+            group_str.toLowerCase();
+
+            RobotController::JointGroup group;
+            bool valid_group = true;
+            if (group_str == "front")      group = RobotController::JointGroup::LEG_FRONT;
+            else if (group_str == "rear")  group = RobotController::JointGroup::LEG_REAR;
+            else valid_group = false;
+
+            if (valid_group) {
+                // 呼叫我們在 RobotController 中新增的函式
+                myRobot.setLegPairCascade(group, hip_rad, upper_rad, lower_rad);
+            } else {
+                Serial.println("  [ERROR] Invalid group. Use: front or rear");
+            }
+        } else {
+            Serial.println("  [ERROR] Invalid format. Use: leg_pair <group> <hip_rad> <upper_rad> <lower_rad>");
+        }
+    }
+    
     // --- Fallback for Unknown Commands ---
     else {
         Serial.printf("  [ERROR] Unknown command: '%s'\n", command.c_str());
