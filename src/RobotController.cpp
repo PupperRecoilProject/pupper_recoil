@@ -3,6 +3,7 @@
 #include "RobotController.h"
 #include <Arduino.h>
 #include <cstring> // 為了使用 memcpy
+#include <cmath>
 
 
 
@@ -45,6 +46,14 @@ const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad = {
     -LOWER_LEG_JOINT_RAD             // RL lower leg
 };
 
+// 定義在 .h 中宣告的靜態常數系統預設參數
+const CascadeParams RobotController::SYSTEM_DEFAULT_PARAMS = {
+    .c = 16.0f,
+    .vel_kp = 500.0f,
+    .vel_ki = 0.0f,
+    .max_target_velocity_rad_s = 8.0f,
+    .integral_max_error_rad = 0.5f
+};
 
 
 // =================================================================
@@ -63,22 +72,7 @@ RobotController::RobotController(MotorController* motor_ctrl)
     integral_error_rad_s.fill(0.0f);
     _target_currents_mA.fill(0);
     is_joint_calibrated.fill(false);
-    
-    // <<< ADDED: 初始化級聯控制器的預設參數 >>>
-    // 這裡設定的值就是您原本的預設值
-    const CascadeParams default_params = {
-        .c = 16.0f,                       // 外環 P 增益
-        .vel_kp = 500.0f,                 // 內環 P 增益
-        .vel_ki = 0.0f,                   // 內環 I 增益
-        .max_target_velocity_rad_s = 8.0f,// 外環輸出限幅 (目標速度)
-        .integral_max_error_rad = 0.5f    // 積分項作用的位置誤差範圍
-    };
-
-    // 將預設參數應用到所有 12 個馬達
-    for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-        setCascadeControlParams(i, default_params);
-    }
-    
+       
     // 初始化狀態變數
     integral_error_vel.fill(0.0f);
     _target_vel_rad_s.fill(0.0f);
@@ -361,17 +355,6 @@ void RobotController::setJointGroupPositionCascade(JointGroup group, float angle
     }
 }
 
-// <<< ADDED: 實現新增的公開函式，用於設定單一馬達的級聯控制參數 >>>
-void RobotController::setCascadeControlParams(int motorID, const CascadeParams& params) {
-    if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
-        cascade_c[motorID] = params.c;
-        cascade_vel_kp[motorID] = params.vel_kp;
-        cascade_vel_ki[motorID] = params.vel_ki;
-        cascade_max_target_velocity_rad_s[motorID] = params.max_target_velocity_rad_s;
-        cascade_integral_max_error_rad[motorID] = params.integral_max_error_rad;
-    }
-    // 您可以在這裡加入錯誤處理，例如 else { Serial.println("Error: motorID out of range"); }
-}
 
 void RobotController::setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad) {
     // 步驟 1: 安全檢查
@@ -473,20 +456,16 @@ bool RobotController::isCalibrated() { /* ... 內容不變 ... */ for(bool h : i
 float RobotController::getMotorPosition_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getPosition_rad(motorID) * direction_multipliers[motorID]; }
 float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getRawVelocity_rad(motorID) * direction_multipliers[motorID]; }
 
-// <<< ADDED: 實現讀取參數的函式 >>>
-CascadeParams RobotController::getCascadeControlParams(int motorID) const {
-    CascadeParams params = {0}; // 初始化為0，作為 motorID 無效時的安全返回值
-
-    if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
-        params.c = cascade_c[motorID];
-        params.vel_kp = cascade_vel_kp[motorID];
-        params.vel_ki = cascade_vel_ki[motorID];
-        params.max_target_velocity_rad_s = cascade_max_target_velocity_rad_s[motorID];
-        params.integral_max_error_rad = cascade_integral_max_error_rad[motorID];
+// <<< ADDED: 新的 getEffectiveParams 函式實作 >>>
+CascadeParams RobotController::getEffectiveParams(int motorID) const {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
+        // 對於無效ID，返回一個安全的零值參數集
+        return {0}; 
     }
-    // 如果 motorID 無效，將返回一個所有成員均為0的結構體
-
-    return params;
+    
+    CascadeParams effective_params = SYSTEM_DEFAULT_PARAMS;
+    
+    return effective_params;
 }
 
 
@@ -582,6 +561,7 @@ void RobotController::updateCascadeControl() {
     const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H;
 
     for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        const CascadeParams params = getEffectiveParams(i); //在迴圈開始時，獲取該馬達當前生效的參數
         // --- 數據採集 ---
         float current_pos = getMotorPosition_rad(i);
         float current_vel = getMotorVelocity_rad(i);
@@ -599,27 +579,26 @@ void RobotController::updateCascadeControl() {
 
         // --- 外環: 位置控制器 (P-Controller) ---
         // 計算目標速度，使用每個馬達獨立的 'c' 參數
-        float target_vel = pos_error * cascade_c[i];
+        float target_vel = pos_error * params.c;
 
         // 限制目標速度，使用每個馬達獨立的限速參數
-        target_vel = std::max(-cascade_max_target_velocity_rad_s[i], 
-                              std::min(cascade_max_target_velocity_rad_s[i], target_vel));
+        target_vel = std::max(-params.max_target_velocity_rad_s, 
+                              std::min(params.max_target_velocity_rad_s, target_vel));
 
         // --- 內環: 速度控制器 (PI-Controller) ---
         float vel_error = target_vel - current_vel;
 
         // 積分項累加，帶條件性抗飽和 (Anti-Windup)
         // 只有當位置誤差在允許範圍內時，才累加積分項
-        if (std::abs(pos_error) < cascade_integral_max_error_rad[i]) {
+        if (std::abs(pos_error) < params.integral_max_error_rad) {
              integral_error_vel[i] += vel_error * dt;
         } else {
-             // 當位置誤差過大時，重置積分項，避免在遠離目標時產生過大的積分修正
              integral_error_vel[i] = 0.0f;
         }
 
         // PI 計算，使用每個馬達獨立的 'vel_kp' 和 'vel_ki'
-        float p_term = cascade_vel_kp[i] * vel_error;
-        float i_term = cascade_vel_ki[i] * integral_error_vel[i];
+        float p_term = params.vel_kp * vel_error;
+        float i_term = params.vel_ki * integral_error_vel[i];
 
         // 總回饋電流
         float feedback_current = p_term + i_term;

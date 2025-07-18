@@ -3,6 +3,7 @@
 
 #include <MotorController.h>
 #include <array> // 引入 C++ 標準陣列容器
+#include <cstdint> // 為了使用 uint8_t
 
 const int NUM_ROBOT_MOTORS = 12;
 const int CONTROL_FREQUENCY_HZ_H = 1000;
@@ -80,9 +81,8 @@ public:
     void setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad);
     void setLegPairCascade(JointGroup group, float hip_rad, float upper_rad, float lower_rad);
 
-    // <<< ADDED: 新增的公開函式，用於設定單一馬達的級聯控制參數
-    void setCascadeControlParams(int motorID, const CascadeParams& params);
-    CascadeParams getCascadeControlParams(int motorID) const;
+    // 獲取最終生效的參數給 updateCascadeControl 和 get_params指令使用的
+    CascadeParams getEffectiveParams(int motorID) const;
 
     // --- 狀態與數據獲取函式 ---
     const char* getModeString();
@@ -133,15 +133,15 @@ private:
     const int16_t MANUAL_MAX_CURRENT = 1000;
     std::array<int16_t, NUM_ROBOT_MOTORS> _target_currents_mA;
 
-    // --- 級聯控制器參數與狀態 ---
-    // <<< CHANGED: 將原本的 static constexpr 參數改為每個馬達獨立的陣列
-    std::array<float, NUM_ROBOT_MOTORS> cascade_c;
-    std::array<float, NUM_ROBOT_MOTORS> cascade_vel_kp;
-    std::array<float, NUM_ROBOT_MOTORS> cascade_vel_ki;
-    std::array<float, NUM_ROBOT_MOTORS> cascade_max_target_velocity_rad_s;
-    std::array<float, NUM_ROBOT_MOTORS> cascade_integral_max_error_rad;
+    // --- 新的參數數據結構---
+    static const CascadeParams SYSTEM_DEFAULT_PARAMS;
+    struct ParamOverrides {
+        CascadeParams values;      // 儲存被覆蓋的值
+        uint8_t override_mask = 0; // 用位元旗標記錄哪個參數被覆蓋了
+    };
+    std::array<ParamOverrides, NUM_ROBOT_MOTORS> _motor_overrides;
 
-    // 級聯控制狀態變數 (維持不變)
+    // 級聯控制狀態變數
     std::array<float, NUM_ROBOT_MOTORS> integral_error_vel;
     std::array<float, NUM_ROBOT_MOTORS> _target_vel_rad_s;
     std::array<float, NUM_ROBOT_MOTORS> _vel_error_rad_s;
