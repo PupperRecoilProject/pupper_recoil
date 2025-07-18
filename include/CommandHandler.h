@@ -3,6 +3,7 @@
 #define COMMAND_HANDLER_H
 
 #include <Arduino.h>
+#include <vector>
 
 // 前向宣告，避免互相引用標頭檔造成的編譯問題
 class RobotController;
@@ -20,13 +21,14 @@ public:
     void executeCommand(String command);
 
 private:
+    void handleSetCommand(const std::vector<String>& args);
+    void handleGetCommand(const std::vector<String>& args);
+    void handleResetCommand(const std::vector<String>& args);
+    void printParams(int motor_id);    
+
     // 指向核心控制物件的指標
     RobotController* _robot;
     TelemetrySystem* _telemetry;
-
-    // 用於控制是否打印額外數據的旗標
-    // 這個旗標從 main 移到這裡，因為它與指令處理更相關
-    bool g_enable_extra_prints = false; 
 };
 
 #endif // COMMAND_HANDLER_H

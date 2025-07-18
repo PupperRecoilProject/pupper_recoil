@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <cstring> // 為了使用 memcpy
 #include <cmath>
-
+#include <map>
 
 
 // =================================================================
@@ -53,6 +53,19 @@ const CascadeParams RobotController::SYSTEM_DEFAULT_PARAMS = {
     .vel_ki = 0.0f,
     .max_target_velocity_rad_s = 8.0f,
     .integral_max_error_rad = 0.5f
+};
+
+// =================================================================
+//   輔助資料結構
+// =================================================================
+const std::map<std::string, RobotController::ParamMask> param_name_to_mask = {
+    {"c",       RobotController::ParamMask::MASK_C},
+    {"kp",      RobotController::ParamMask::MASK_VEL_KP},
+    {"vel_kp",  RobotController::ParamMask::MASK_VEL_KP}, // "kp" 和 "vel_kp" 是別名
+    {"ki",      RobotController::ParamMask::MASK_VEL_KI},
+    {"vel_ki",  RobotController::ParamMask::MASK_VEL_KI}, // "ki" 和 "vel_ki" 是別名
+    {"max_vel", RobotController::ParamMask::MASK_MAX_VEL},
+    {"max_err", RobotController::ParamMask::MASK_MAX_ERR}
 };
 
 
@@ -435,6 +448,55 @@ void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float u
     }
 }
 
+
+// =================================================================
+//   參數管理後端 (Parameter Management Backend)
+// =================================================================
+RobotController::ParamMask getMaskFromName(const std::string& param_name) {
+    auto it = param_name_to_mask.find(param_name);
+    if (it != param_name_to_mask.end()) {
+        return it->second;
+    }
+    return RobotController::ParamMask::MASK_NONE;
+}
+
+void RobotController::setParamOverride(ParamScope scope, int target_id, const std::string& param_name, float value) {
+    ParamMask mask_to_set = getMaskFromName(param_name);
+    if (mask_to_set == MASK_NONE) return; // 無效的參數名
+
+    // 根據作用域選擇要修改的對象
+    if (scope == ParamScope::GLOBAL) {
+        _global_override_mask |= mask_to_set; // 設置對應的旗標位
+        if (mask_to_set & MASK_C)       _global_params.c = value;
+        if (mask_to_set & MASK_VEL_KP)  _global_params.vel_kp = value;
+        if (mask_to_set & MASK_VEL_KI)  _global_params.vel_ki = value;
+        if (mask_to_set & MASK_MAX_VEL) _global_params.max_target_velocity_rad_s = value;
+        if (mask_to_set & MASK_MAX_ERR) _global_params.integral_max_error_rad = value;
+    } else if (scope == ParamScope::MOTOR) {
+        if (target_id < 0 || target_id >= NUM_ROBOT_MOTORS) return;
+        _motor_overrides[target_id].override_mask |= mask_to_set; // 設置旗標
+        if (mask_to_set & MASK_C)       _motor_overrides[target_id].values.c = value;
+        if (mask_to_set & MASK_VEL_KP)  _motor_overrides[target_id].values.vel_kp = value;
+        if (mask_to_set & MASK_VEL_KI)  _motor_overrides[target_id].values.vel_ki = value;
+        if (mask_to_set & MASK_MAX_VEL) _motor_overrides[target_id].values.max_target_velocity_rad_s = value;
+        if (mask_to_set & MASK_MAX_ERR) _motor_overrides[target_id].values.integral_max_error_rad = value;
+    }
+}
+
+void RobotController::resetParamOverride(ParamScope scope, int target_id, const std::string& param_name) {
+    // 如果 param_name 為空，代表重置所有參數
+    ParamMask mask_to_clear = param_name.empty() ? MASK_ALL : getMaskFromName(param_name);
+    if (mask_to_clear == MASK_NONE) return;
+
+    if (scope == ParamScope::GLOBAL) {
+        _global_override_mask &= ~mask_to_clear; // 清除對應的旗標位
+    } else if (scope == ParamScope::MOTOR) {
+        if (target_id < 0 || target_id >= NUM_ROBOT_MOTORS) return;
+        _motor_overrides[target_id].override_mask &= ~mask_to_clear;
+    }
+}
+
+
 // =================================================================
 //   狀態與數據獲取函式
 // =================================================================
@@ -458,16 +520,58 @@ float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 .
 
 // <<< ADDED: 新的 getEffectiveParams 函式實作 >>>
 CascadeParams RobotController::getEffectiveParams(int motorID) const {
-    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
-        // 對於無效ID，返回一個安全的零值參數集
-        return {0}; 
-    }
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return {0};
     
+    // 1. 從系統預設開始
     CascadeParams effective_params = SYSTEM_DEFAULT_PARAMS;
-    
+
+    // 2. 應用全域覆蓋
+    if (_global_override_mask & MASK_C)       effective_params.c = _global_params.c;
+    if (_global_override_mask & MASK_VEL_KP)  effective_params.vel_kp = _global_params.vel_kp;
+    if (_global_override_mask & MASK_VEL_KI)  effective_params.vel_ki = _global_params.vel_ki;
+    if (_global_override_mask & MASK_MAX_VEL) effective_params.max_target_velocity_rad_s = _global_params.max_target_velocity_rad_s;
+    if (_global_override_mask & MASK_MAX_ERR) effective_params.integral_max_error_rad = _global_params.integral_max_error_rad;
+
+    // 3. 應用個別馬達覆蓋
+    const auto& motor_override = _motor_overrides[motorID];
+    if (motor_override.override_mask & MASK_C)       effective_params.c = motor_override.values.c;
+    if (motor_override.override_mask & MASK_VEL_KP)  effective_params.vel_kp = motor_override.values.vel_kp;
+    if (motor_override.override_mask & MASK_VEL_KI)  effective_params.vel_ki = motor_override.values.vel_ki;
+    if (motor_override.override_mask & MASK_MAX_VEL) effective_params.max_target_velocity_rad_s = motor_override.values.max_target_velocity_rad_s;
+    if (motor_override.override_mask & MASK_MAX_ERR) effective_params.integral_max_error_rad = motor_override.values.integral_max_error_rad;
+
     return effective_params;
 }
 
+// <<< ADDED: 新增 getParamSourceInfo 函式 >>>
+ParamSourceInfo RobotController::getParamSourceInfo(int motorID) const {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return {};
+
+    ParamSourceInfo info;
+    const auto& motor_override = _motor_overrides[motorID];
+
+    info.c_source       = (motor_override.override_mask & MASK_C) ? "Motor" : ((_global_override_mask & MASK_C) ? "Global" : "Default");
+    info.vel_kp_source  = (motor_override.override_mask & MASK_VEL_KP) ? "Motor" : ((_global_override_mask & MASK_VEL_KP) ? "Global" : "Default");
+    info.vel_ki_source  = (motor_override.override_mask & MASK_VEL_KI) ? "Motor" : ((_global_override_mask & MASK_VEL_KI) ? "Global" : "Default");
+    info.max_vel_source = (motor_override.override_mask & MASK_MAX_VEL) ? "Motor" : ((_global_override_mask & MASK_MAX_VEL) ? "Global" : "Default");
+    info.max_err_source = (motor_override.override_mask & MASK_MAX_ERR) ? "Motor" : ((_global_override_mask & MASK_MAX_ERR) ? "Global" : "Default");
+
+    return info;
+}
+
+// <<< ADDED: 新增 getMotorIdsForGroup 函式 >>>
+std::vector<int> RobotController::getMotorIdsForGroup(const std::string& group_name_short) {
+    if (group_name_short == "h") return {0, 3, 6, 9};
+    if (group_name_short == "u") return {1, 4, 7, 10};
+    if (group_name_short == "l") return {2, 5, 8, 11};
+    if (group_name_short == "l0") return {0, 1, 2};
+    if (group_name_short == "l1") return {3, 4, 5};
+    if (group_name_short == "l2") return {6, 7, 8};
+    if (group_name_short == "l3") return {9, 10, 11};
+    if (group_name_short == "f") return {0, 1, 2, 3, 4, 5};
+    if (group_name_short == "r") return {6, 7, 8, 9, 10, 11};
+    return {}; // 返回空向量如果組名無效
+}
 
 
 

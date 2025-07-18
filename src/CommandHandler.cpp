@@ -3,6 +3,7 @@
 #include "CommandHandler.h"
 #include "RobotController.h"   // 引用完整的定義
 #include "TelemetrySystem.h" // 引用完整的定義
+#include <vector>
 
 // 從 homing_main.cpp 移過來的外部變數宣告，使其在此檔案中可見
 // 這樣 'freq' 指令才能正確工作
@@ -19,265 +20,202 @@ void CommandHandler::begin(RobotController* robot, TelemetrySystem* telemetry) {
 }
 
 void CommandHandler::executeCommand(String command) {
-    
     if (!_robot || !_telemetry) {
         Serial.println("[FATAL] CommandHandler not initialized!");
         return;
     }
-
-    // --- High-Level Control (預設使用 Cascade Controller) ---
-
-    if (command == "stand") {
-        Serial.println("--> Command: [stand]");
-        Serial.println("  Activating CASCADED control for stable standing pose.");
-        _robot->setRobotPoseCascade(manual_calibration_pose_rad);
-
-    } else if (command.startsWith("pos ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int space1 = command.indexOf(' ');
-        int space2 = command.indexOf(' ', space1 + 1);
-
-        if (space1 != -1 && space2 != -1) {
-            int motorID = command.substring(space1 + 1, space2).toInt();
-            float angle_rad = command.substring(space2 + 1).toFloat();
-            _robot->setTargetPositionCascade(motorID, angle_rad);
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: pos <id> <radians>");
-        }
-
-    } else if (command.startsWith("group ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int space1 = command.indexOf(' ');
-        int space2 = command.indexOf(' ', space1 + 1);
-
-        if (space1 != -1 && space2 != -1) {
-            String group_str = command.substring(space1 + 1, space2);
-            float angle_rad = command.substring(space2 + 1).toFloat();
-            group_str.toLowerCase();
-
-            RobotController::JointGroup group;
-            bool valid_group = true;
-            if (group_str == "hip")       group = RobotController::JointGroup::HIP;
-            else if (group_str == "upper")  group = RobotController::JointGroup::UPPER;
-            else if (group_str == "lower")  group = RobotController::JointGroup::LOWER;
-            else valid_group = false;
-
-            if (valid_group) {
-                _robot->setJointGroupPositionCascade(group, angle_rad);
-            } else {
-                Serial.println("  [ERROR] Invalid group. Use: hip, upper, or lower");
-            }
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: group <group_name> <radians>");
-        }
     
-    // --- Cascade Controller Tuning ---
-    
-    } else if (command.startsWith("set_param ")) {
-        // <<< MODIFIED: 明確告知使用者此功能暫時停用 >>>
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        Serial.println("  [INFO] 'set_param' is being refactored. This command is temporarily disabled.");
-        Serial.println("  It will be re-enabled in Stage 2 with enhanced features.");
-
-    } else if (command.startsWith("get_params")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        String arg = command.substring(10).trim();
-        if (arg == "all") {
-            Serial.println("--- Cascade Parameters for All Motors (Effective Values) ---");
-            Serial.println("ID |    c    |  vel_kp |  vel_ki | max_vel | max_err");
-            Serial.println("---+---------+---------+---------+---------+---------");
-            for (int i=0; i < NUM_ROBOT_MOTORS; i++) {
-                // <<< CORRECTED: 改為呼叫新的函式 >>>
-                CascadeParams params = _robot->getEffectiveParams(i);
-                char buf[120];
-                snprintf(buf, sizeof(buf), "%2d | %7.2f | %7.1f | %7.1f | %7.2f | %7.2f",
-                         i, params.c, params.vel_kp, params.vel_ki, 
-                         params.max_target_velocity_rad_s, params.integral_max_error_rad);
-                Serial.println(buf);
+    // 1. 將指令字串分割成參數列表 (Tokenizing)
+    std::vector<String> args;
+    String current_arg = "";
+    for (int i = 0; i < command.length(); i++) {
+        if (command.charAt(i) == ' ') {
+            if (current_arg.length() > 0) {
+                args.push_back(current_arg);
+                current_arg = "";
             }
         } else {
-            int motorID = arg.toInt();
-            if (motorID >= 0 && motorID < NUM_ROBOT_MOTORS) {
-                // <<< CORRECTED: 改為呼叫新的函式，並修復變數名錯誤 (i -> motorID) >>>
-                CascadeParams params = _robot->getEffectiveParams(motorID);
-                Serial.printf("--- Cascade Parameters for Motor %d (Effective Values) ---\n", motorID);
-                Serial.printf("  c:       %.4f\n", params.c);
-                Serial.printf("  vel_kp:  %.4f\n", params.vel_kp);
-                Serial.printf("  vel_ki:  %.4f\n", params.vel_ki);
-                Serial.printf("  max_vel: %.4f\n", params.max_target_velocity_rad_s);
-                Serial.printf("  max_err: %.4f\n", params.integral_max_error_rad);
-            } else {
-                Serial.println("  [ERROR] Invalid format. Use: get_params <id> or get_params all");
-            }
-        }
-
-    // --- System & Calibration ---
-
-    } else if (command == "cal") {
-        Serial.println("--> Command: [cal]");
-        _robot->performManualCalibration();
-
-    } else if (command == "stop") {
-        Serial.println("--> Command: [stop]");
-        _robot->setIdle();
-
-    } else if (command == "reboot") {
-        Serial.println("--> Command: [reboot]");
-        delay(100);
-        #ifdef __arm__
-        SCB_AIRCR = 0x05FA0004;
-        #endif
-
-    // --- Testing & Debugging ---
-    
-    } else if (command.startsWith("test_pid ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int space1 = command.indexOf(' ');
-        int space2 = command.indexOf(' ', space1 + 1);
-        if (space1 != -1 && space2 != -1) {
-            int motorID = command.substring(space1 + 1, space2).toInt();
-            float angle_rad = command.substring(space2 + 1).toFloat();
-            _robot->setTargetPositionPID(motorID, angle_rad);
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: test_pid <id> <radians>");
-        }
-
-    } else if (command.startsWith("test_wiggle ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int motorID = command.substring(12).toInt();
-        _robot->startWiggleTest(motorID);
-
-    } else if (command.startsWith("raw ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int space1 = command.indexOf(' ');
-        int space2 = command.indexOf(' ', space1 + 1);
-        if (space1 != -1 && space2 != -1) {
-            int motorID = command.substring(space1 + 1, space2).toInt();
-            int current = command.substring(space2 + 1).toInt();
-            _robot->setSingleMotorCurrent(motorID, current);
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: raw <id> <current_mA>");
-        }
-
-    } else if (command.startsWith("print ")) {
-        String arg = command.substring(6);
-        if (arg == "on") {
-            Serial.println("--> Command: [print on]. Enabling extra data printing.");
-            // g_enable_extra_prints is now a private member of CommandHandler
-            // This logic will be handled by TelemetrySystem in a future refactor,
-            // but for now, we keep it here. We need to modify TelemetrySystem
-            // to be aware of this flag. For simplicity in Stage 1, we comment this out
-            // as it requires more changes to TelemetrySystem.
-            Serial.println("  [INFO] 'print' command will be fully functional later.");
-
-        } else if (arg == "off") {
-            Serial.println("--> Command: [print off]. Disabling extra data printing.");
-            // g_enable_extra_prints = false;
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: print <on|off>");
-        }
-
-    } else if (command.startsWith("monitor ")) {
-        String mode_str = command.substring(8);
-        mode_str.trim();
-        if (mode_str == "human") {
-            _telemetry->setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
-        } else if (mode_str == "csv") {
-            _telemetry->setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
-        } else if (mode_str == "dashboard") {
-            _telemetry->setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
-        } else {
-            Serial.println("  [ERROR] Unknown monitor mode. Use: human, csv, or dashboard");
-        } 
-
-    } else if (command.startsWith("freq ")) {
-        int hz = command.substring(5).toInt();
-        if (hz > 0 && hz <= 100) {
-            // This now correctly modifies the global variable in main
-            g_print_interval_millis = 1000 / hz;
-            Serial.printf("--> [OK] Monitor frequency set to %d Hz (interval: %ld ms).\n", hz, g_print_interval_millis);
-        } else {
-            Serial.println("  [ERROR] Invalid frequency. Please use a value between 1 and 100.");
-        }
-    
-    } else if (command.startsWith("focus ")) {
-        String arg = command.substring(6);
-        arg.trim();
-        if (arg == "off") {
-            _telemetry->setFocusMotor(-1);
-        } else {
-            // <<< CORRECTED: Added the missing variable declaration >>>
-            bool is_valid_number = false;
-            if (arg.length() > 0) {
-                if (isDigit(arg.charAt(0)) || (arg.charAt(0) == '-' && arg.length() > 1 && isDigit(arg.charAt(1)))) {
-                    is_valid_number = true;
-                    // A simple check to see if it's all digits after the potential '-'
-                    for (int k=1; k < arg.length(); k++) {
-                        if (!isDigit(arg.charAt(k))) {
-                            is_valid_number = false;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (is_valid_number) {
-                int motorID = arg.toInt();
-                _telemetry->setFocusMotor(motorID);
-            } else {
-                 Serial.println("  [ERROR] Invalid argument. Use a motor ID number or 'off'.");
-            }
-        }
-    
-    } else if (command.startsWith("leg ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int s1 = command.indexOf(' ');
-        int s2 = command.indexOf(' ', s1 + 1);
-        int s3 = command.indexOf(' ', s2 + 1);
-        int s4 = command.indexOf(' ', s3 + 1);
-
-        if (s1!=-1 && s2!=-1 && s3!=-1 && s4!=-1) {
-            int leg_id = command.substring(s1 + 1, s2).toInt();
-            float hip_rad = command.substring(s2 + 1, s3).toFloat();
-            float upper_rad = command.substring(s3 + 1, s4).toFloat();
-            float lower_rad = command.substring(s4 + 1).toFloat();
-            _robot->setLegJointsCascade(leg_id, hip_rad, upper_rad, lower_rad);
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: leg <id> <hip_rad> <upper_rad> <lower_rad>");
-        }
-
-    } else if (command.startsWith("leg_pair ")) {
-        Serial.printf("--> Command: [%s]\n", command.c_str());
-        int s1 = command.indexOf(' ');
-        int s2 = command.indexOf(' ', s1 + 1);
-        int s3 = command.indexOf(' ', s2 + 1);
-        int s4 = command.indexOf(' ', s3 + 1);
-        
-        if (s1!=-1 && s2!=-1 && s3!=-1 && s4!=-1) {
-            String group_str = command.substring(s1 + 1, s2);
-            float hip_rad = command.substring(s2 + 1, s3).toFloat();
-            float upper_rad = command.substring(s3 + 1, s4).toFloat();
-            float lower_rad = command.substring(s4 + 1).toFloat();
-            group_str.toLowerCase();
-
-            RobotController::JointGroup group;
-            bool valid_group = true;
-            if (group_str == "front")      group = RobotController::JointGroup::LEG_FRONT;
-            else if (group_str == "rear")  group = RobotController::JointGroup::LEG_REAR;
-            else valid_group = false;
-
-            if (valid_group) {
-                _robot->setLegPairCascade(group, hip_rad, upper_rad, lower_rad);
-            } else {
-                Serial.println("  [ERROR] Invalid group. Use: front or rear");
-            }
-        } else {
-            Serial.println("  [ERROR] Invalid format. Use: leg_pair <group> <hip_rad> <upper_rad> <lower_rad>");
+            current_arg += command.charAt(i);
         }
     }
-    
-    // --- Fallback for Unknown Commands ---
+    if (current_arg.length() > 0) {
+        args.push_back(current_arg);
+    }
+
+    if (args.empty()) {
+        return; // 空指令，直接返回
+    }
+
+    // 2. 根據第一個參數 (Action) 分派任務 (Dispatching)
+    String action = args[0];
+    action.toLowerCase();
+
+    if (action == "set") {
+        handleSetCommand(args);
+    } else if (action == "get") {
+        handleGetCommand(args);
+    } else if (action == "reset") {
+        handleResetCommand(args);
+    } 
+    // --- 在此階段，我們只實現 set, get, reset ---
+    // --- 其他指令暫時回覆 "未實現" ---
+    else if (action == "move" || action == "stand" || action == "status" ||
+             action == "mode" || action == "freq" || action == "focus" ||
+             action == "cal" || action == "stop" || action == "reboot" ||
+             action == "raw" || action == "test")
+    {
+        Serial.printf("  [INFO] Command '%s' will be implemented in a later stage.\n", action.c_str());
+    }
     else {
         Serial.printf("  [ERROR] Unknown command: '%s'\n", command.c_str());
     }
+}
+
+void CommandHandler::handleSetCommand(const std::vector<String>& args) {
+    // 語法: set <target> <param> <value>
+    if (args.size() != 4) {
+        Serial.println("  [ERROR] Invalid format. Use: set <target> <param> <value>");
+        return;
+    }
+
+    String target_str = args[1];
+    String param_name = args[2];
+    float value = args[3].toFloat();
+    param_name.toLowerCase();
+
+    char target_type = target_str.charAt(0);
+    
+    if (target_str == "all") {
+        _robot->setParamOverride(RobotController::ParamScope::GLOBAL, -1, param_name.c_str(), value);
+        Serial.printf("  [OK] Global param '%s' set to %.4f\n", param_name.c_str(), value);
+    } else if (target_type == 'g') {
+        String group_name_short = target_str.substring(1);
+        std::vector<int> motor_ids = _robot->getMotorIdsForGroup(group_name_short.c_str());
+        if (motor_ids.empty()) {
+            Serial.printf("  [ERROR] Unknown group: '%s'\n", target_str.c_str());
+            return;
+        }
+        for (int id : motor_ids) {
+            _robot->setParamOverride(RobotController::ParamScope::MOTOR, id, param_name.c_str(), value);
+        }
+        Serial.printf("  [OK] Group '%s' param '%s' set to %.4f for %d motors\n", target_str.c_str(), param_name.c_str(), value, motor_ids.size());
+    } else if (target_type == 'm') {
+        int motor_id = target_str.substring(1).toInt();
+        _robot->setParamOverride(RobotController::ParamScope::MOTOR, motor_id, param_name.c_str(), value);
+        Serial.printf("  [OK] Motor %d param '%s' set to %.4f\n", motor_id, param_name.c_str(), value);
+    } else {
+        Serial.printf("  [ERROR] Unknown target: '%s'\n", target_str.c_str());
+    }
+}
+
+void CommandHandler::handleGetCommand(const std::vector<String>& args) {
+    // 語法: get <target> [source]
+    if (args.size() < 2 || args.size() > 3) {
+        Serial.println("  [ERROR] Invalid format. Use: get <target> [source]");
+        return;
+    }
+
+    String target_str = args[1];
+    bool get_source = (args.size() == 3 && args[2] == "source");
+    
+    if (target_str == "all") {
+        // 'get all source' 沒有意義，因為全域的來源就是 "Global" 或 "Default"
+        if (get_source) {
+            Serial.println("  [INFO] Use 'get m<id> source' to see sources.");
+            return;
+        }
+        Serial.println("--- Global Cascade Parameters (Effective Values) ---");
+        // 我們通過獲取 m0 的參數來 "模擬" 全域參數的顯示，因為此時 m0 尚未被覆蓋
+        CascadeParams params = _robot->getEffectiveParams(0); // 假設 m0 繼承全域
+        char buf[120];
+        snprintf(buf, sizeof(buf), "c: %.2f, kp: %.1f, ki: %.1f, max_vel: %.2f, max_err: %.2f",
+                 params.c, params.vel_kp, params.vel_ki, 
+                 params.max_target_velocity_rad_s, params.integral_max_error_rad);
+        Serial.println(buf);
+    } else if (target_str.charAt(0) == 'g') {
+        String group_name_short = target_str.substring(1);
+        std::vector<int> motor_ids = _robot->getMotorIdsForGroup(group_name_short.c_str());
+        if (motor_ids.empty()) { /* ... error handling ... */ return; }
+
+        Serial.printf("--- Parameters for Group '%s' ---\n", target_str.c_str());
+        if (get_source) {
+             Serial.println("ID | c(src) | kp(src) | ki(src) | max_vel(src) | max_err(src)");
+        } else {
+             Serial.println("ID |    c    |  vel_kp |  vel_ki | max_vel | max_err");
+        }
+        Serial.println("---+---------+---------+---------+---------+-----------");
+        for (int id : motor_ids) {
+            if(get_source) {
+                ParamSourceInfo s = _robot->getParamSourceInfo(id);
+                char buf[120];
+                snprintf(buf, sizeof(buf), "%2d | %-7.7s | %-7.7s | %-7.7s | %-12.12s | %-11.11s",
+                     id, s.c_source.c_str(), s.vel_kp_source.c_str(), s.vel_ki_source.c_str(),
+                     s.max_vel_source.c_str(), s.max_err_source.c_str());
+                Serial.println(buf);
+            } else {
+                printParams(id);
+            }
+        }
+    } else if (target_str.charAt(0) == 'm') {
+        int motor_id = target_str.substring(1).toInt();
+        if (get_source) {
+            Serial.printf("--- Parameter Sources for Motor %d ---\n", motor_id);
+            ParamSourceInfo s = _robot->getParamSourceInfo(motor_id);
+            Serial.printf("  c:       %s\n", s.c_source.c_str());
+            Serial.printf("  vel_kp:  %s\n", s.vel_kp_source.c_str());
+            // ...以此類推...
+        } else {
+            Serial.printf("--- Parameters for Motor %d ---\n", motor_id);
+            printParams(motor_id);
+        }
+    } else {
+        Serial.printf("  [ERROR] Unknown target: '%s'\n", target_str.c_str());
+    }
+}
+
+void CommandHandler::handleResetCommand(const std::vector<String>& args) {
+    // 語法: reset <target> [param]
+    if (args.size() < 2 || args.size() > 3) {
+        Serial.println("  [ERROR] Invalid format. Use: reset <target> [param]");
+        return;
+    }
+
+    String target_str = args[1];
+    String param_name = (args.size() == 3) ? args[2] : "";
+    param_name.toLowerCase();
+
+    if (target_str == "global") {
+        _robot->resetParamOverride(RobotController::ParamScope::GLOBAL, -1, "");
+        Serial.println("  [OK] Global params reset to system defaults.");
+    } else if (target_str == "all") {
+        // 終極重置
+        _robot->resetParamOverride(RobotController::ParamScope::GLOBAL, -1, "");
+        for (int i=0; i < NUM_ROBOT_MOTORS; ++i) {
+            _robot->resetParamOverride(RobotController::ParamScope::MOTOR, i, "");
+        }
+        Serial.println("  [OK] All global and motor-specific params reset.");
+    } else if (target_str.charAt(0) == 'g') {
+        String group_name_short = target_str.substring(1);
+        std::vector<int> motor_ids = _robot->getMotorIdsForGroup(group_name_short.c_str());
+        if (motor_ids.empty()) { /* ... error handling ... */ return; }
+        for (int id : motor_ids) {
+            _robot->resetParamOverride(RobotController::ParamScope::MOTOR, id, param_name.c_str());
+        }
+        Serial.printf("  [OK] Group '%s' params reset.\n", target_str.c_str());
+    } else if (target_str.charAt(0) == 'm') {
+        int motor_id = target_str.substring(1).toInt();
+        _robot->resetParamOverride(RobotController::ParamScope::MOTOR, motor_id, param_name.c_str());
+        Serial.printf("  [OK] Motor %d params reset.\n", motor_id);
+    } else {
+        Serial.printf("  [ERROR] Unknown target: '%s'\n", target_str.c_str());
+    }
+}
+
+void CommandHandler::printParams(int motor_id) {
+    CascadeParams params = _robot->getEffectiveParams(motor_id);
+    char buf[120];
+    snprintf(buf, sizeof(buf), "%2d | %7.2f | %7.1f | %7.1f | %7.2f | %7.2f",
+             motor_id, params.c, params.vel_kp, params.vel_ki, 
+             params.max_target_velocity_rad_s, params.integral_max_error_rad);
+    Serial.println(buf);
 }
