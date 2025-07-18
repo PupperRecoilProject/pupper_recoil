@@ -4,6 +4,8 @@
 #include <MotorController.h>
 #include <array> // 引入 C++ 標準陣列容器
 #include <cstdint> // 為了使用 uint8_t
+#include <vector>
+#include <string>
 
 const int NUM_ROBOT_MOTORS = 12;
 const int CONTROL_FREQUENCY_HZ_H = 1000;
@@ -28,6 +30,14 @@ struct CascadeParams {
     float integral_max_error_rad;
 };
 
+// <<< ADDED: for get source 指令 >>>
+struct ParamSourceInfo {
+    std::string c_source;
+    std::string vel_kp_source;
+    std::string vel_ki_source;
+    std::string max_vel_source;
+    std::string max_err_source;
+};
 
 class RobotController {
 public:
@@ -54,6 +64,22 @@ public:
         LEG3,
         LEG_FRONT,
         LEG_REAR
+    };
+
+    enum class ParamScope {
+        GLOBAL,
+        GROUP,
+        MOTOR
+    };
+
+    enum ParamMask : uint8_t {
+        MASK_NONE    = 0,
+        MASK_C       = 1 << 0, // 1
+        MASK_VEL_KP  = 1 << 1, // 2
+        MASK_VEL_KI  = 1 << 2, // 4
+        MASK_MAX_VEL = 1 << 3, // 8
+        MASK_MAX_ERR = 1 << 4, // 16
+        MASK_ALL     = 0xFF
     };
 
     // 構造函式
@@ -84,6 +110,9 @@ public:
     // 獲取最終生效的參數給 updateCascadeControl 和 get_params指令使用的
     CascadeParams getEffectiveParams(int motorID) const;
 
+    void setParamOverride(ParamScope scope, int target_id, const std::string& param_name, float value);
+    void resetParamOverride(ParamScope scope, int target_id, const std::string& param_name);
+
     // --- 狀態與數據獲取函式 ---
     const char* getModeString();
     bool isCalibrated();
@@ -91,6 +120,9 @@ public:
     float getMotorVelocity_rad(int motorID);
     int16_t getTargetCurrent_mA(int motorID);
     CascadeDebugInfo getCascadeDebugInfo(int motorID);
+
+    ParamSourceInfo getParamSourceInfo(int motorID) const;
+    std::vector<int> getMotorIdsForGroup(const std::string& group_name_short);
 
 private:
     // --- 私有函式 (Private Methods) ---
@@ -135,11 +167,14 @@ private:
 
     // --- 新的參數數據結構---
     static const CascadeParams SYSTEM_DEFAULT_PARAMS;
+    CascadeParams _global_params;
+    uint8_t _global_override_mask = MASK_NONE;
     struct ParamOverrides {
-        CascadeParams values;      // 儲存被覆蓋的值
-        uint8_t override_mask = 0; // 用位元旗標記錄哪個參數被覆蓋了
+        CascadeParams values;
+        uint8_t override_mask = MASK_NONE;
     };
     std::array<ParamOverrides, NUM_ROBOT_MOTORS> _motor_overrides;
+
 
     // 級聯控制狀態變數
     std::array<float, NUM_ROBOT_MOTORS> integral_error_vel;
