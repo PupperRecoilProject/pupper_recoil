@@ -46,11 +46,11 @@ public:
     // 機器人控制模式的枚舉 (enum)
     enum class ControlMode {
         IDLE,
-        POSITION_CONTROL,
+        POSITION_CONTROL, // <<< DELETED: 不再使用
         CASCADE_CONTROL,
         WIGGLE_TEST,
         CURRENT_MANUAL_CONTROL,
-        JOINT_ARRAY_CONTROL,
+        JOINT_ARRAY_CONTROL, // 說明：此模式也未被使用，但因其可能為未來預留，暫時保留。
         ERROR
     };
     // 用於分組控制的關節類型枚舉

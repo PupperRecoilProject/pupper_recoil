@@ -28,9 +28,9 @@ private:
 
     // 第三階段新增
     void handleMoveCommand(const std::vector<String>& args);
-    void handleConfigCommand(const std::vector<String>& args); // 用於處理 mode, freq, focus
-    void handleSystemCommand(const std::vector<String>& args); // 用於處理 cal, stop, reboot, status
-    void handleTestCommand(const std::vector<String>& args); // 用於處理 raw, test wiggle
+    void handleConfigCommand(const String& action, const std::vector<String>& args); // 用於處理 mode, freq, focus
+    void handleSystemCommand(const String& action, const std::vector<String>& args); // 用於處理 cal, stop, reboot, status
+    void handleTestCommand(const String& action, const std::vector<String>& args); // 用於處理 raw, test wiggle
 
     // 指向核心控制物件的指標
     RobotController* _robot;

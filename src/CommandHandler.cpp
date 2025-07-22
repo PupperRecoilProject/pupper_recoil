@@ -56,19 +56,21 @@ void CommandHandler::executeCommand(String command) {
         handleGetCommand(args);
     } else if (action == "reset") {
         handleResetCommand(args);
-    } 
-    else if (action == "move" || action == "stand") {
+    } else if (action == "move" || action == "stand") {
         handleMoveCommand(args);
     } else if (action == "mode" || action == "freq" || action == "focus") {
-        handleConfigCommand(args);
+        // 現在正確地傳入 action 字串
+        handleConfigCommand(action, args); 
     } else if (action == "cal" || action == "stop" || action == "reboot" || action == "status") {
-        handleSystemCommand(args);
+        // 現在正確地傳入 action 字串
+        handleSystemCommand(action, args);
     } else if (action == "raw" || action == "test") {
-        handleTestCommand(args);
-    }
-    else {
+        // 現在正確地傳入 action 字串
+        handleTestCommand(action, args);
+    } else {
         Serial.printf("  [ERROR] Unknown command: '%s'\n", command.c_str());
     }
+
 }
 
 void CommandHandler::handleSetCommand(const std::vector<String>& args) {
@@ -221,110 +223,151 @@ void CommandHandler::printParams(int motor_id) {
 }
 
 void CommandHandler::handleMoveCommand(const std::vector<String>& args) {
+    // 函式入口點的初步檢查
+    if (args.empty()) {
+        // 正常情況下不會發生，但作為防禦性程式設計
+        return; 
+    }
+
+    // 獲取指令動作 (例如 "stand", "move")
     String action = args[0];
-    
-    // --- 特例: stand ---
+    action.toLowerCase(); // 統一轉為小寫，增加指令容錯性
+
+    // --- 處理特殊指令: "stand" ---
+    // "stand" 是一個無參數的特殊 move 指令
     if (action == "stand") {
         if (args.size() != 1) {
             Serial.println("  [ERROR] 'stand' command takes no arguments.");
             return;
         }
         Serial.println("--> Command: [stand]");
+        // 使用預先定義好的校準姿態來讓機器人站立
         _robot->setRobotPoseCascade(manual_calibration_pose_rad);
-        return;
+        return; // 處理完畢，直接返回
     }
-    
-    // --- 一般 move 指令 ---
-    // 語法: move <target> [params...]
-    if (args.size() < 3) {
-        Serial.println("  [ERROR] Invalid format. Use: move <target> <angle(s)>");
+
+    // --- 處理一般指令: "move" ---
+    // "move" 指令至少需要3個參數: move <target> <value(s)>
+    if (action != "move" || args.size() < 3) {
+        Serial.println("  [ERROR] Invalid format. Use: move <target> <value(s)>");
+        Serial.println("  Examples: 'move m0 1.57', 'move gh 0.1', 'stand'");
         return;
     }
 
+    // 獲取移動目標 (例如 "m0", "all", "gh", "gl0")
     String target_str = args[1];
+    target_str.toLowerCase(); // 同樣轉為小寫
 
-    // --- 處理 move all ---
+    // --- 1. 處理目標: "all" ---
     if (target_str == "all") {
-        if (args.size() == 3) { // move all <angle>
+        // "move all" 有兩種形式:
+        // a) move all <angle> (3個參數) -> 所有馬達移動到同一個角度
+        if (args.size() == 3) {
             float angle = args[2].toFloat();
             std::array<float, NUM_ROBOT_MOTORS> all_angles;
             all_angles.fill(angle);
             _robot->setAllJointsCascade(all_angles);
             Serial.printf("  [OK] Moving all motors to %.4f rad\n", angle);
-        } else if (args.size() == 14) { // move all <a0> <a1> ... <a11>
+        
+        // b) move all <a0> <a1> ... <a11> (14個參數) -> 每個馬達移動到各自指定角度
+        } else if (args.size() == 14) { // 1 (move) + 1 (all) + 12 (angles) = 14
             std::array<float, NUM_ROBOT_MOTORS> all_angles;
-            for(int i=0; i < NUM_ROBOT_MOTORS; ++i) {
-                all_angles[i] = args[i+2].toFloat();
+            bool conversion_ok = true;
+            for(int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+                // toFloat() 在轉換失敗時返回 0.0，這裡暫時接受此行為
+                all_angles[i] = args[i + 2].toFloat();
             }
             _robot->setAllJointsCascade(all_angles);
-            Serial.println("  [OK] Setting all motor positions from list.");
+            Serial.println("  [OK] Setting all 12 motor positions from list.");
         } else {
-            Serial.println("  [ERROR] 'move all' requires 1 or 12 angle arguments.");
+            Serial.println("  [ERROR] 'move all' requires either 1 angle argument or 12 angle arguments.");
         }
         return;
     }
 
-    // --- 處理 move m<id> ---
-    if (target_str.charAt(0) == 'm') {
-        if (args.size() != 3) { /* ... error handling ... */ return; }
+    // --- 2. 處理目標: 單一馬達 "m<id>" ---
+    if (target_str.startsWith("m")) {
+        if (args.size() != 3) {
+            Serial.println("  [ERROR] Motor move format: move m<id> <angle>");
+            return;
+        }
         int motor_id = target_str.substring(1).toInt();
         String angle_str = args[2];
         float angle_rad;
 
+        // 檢查是否為相對移動指令 (以 '+' 或 '-' 開頭)
         if (angle_str.startsWith("+") || angle_str.startsWith("-")) {
-            // 相對移動
+            // 獲取當前目標位置作為相對移動的基準
             float current_target = _robot->getTargetPosition_rad(motor_id);
             float delta = angle_str.toFloat();
             angle_rad = current_target + delta;
+            Serial.printf("  [OK] Moving motor %d relatively by %.4f rad (%.4f -> %.4f)\n", motor_id, delta, current_target, angle_rad);
         } else {
             // 絕對移動
             angle_rad = angle_str.toFloat();
+            Serial.printf("  [OK] Moving motor %d to absolute position %.4f rad\n", motor_id, angle_rad);
         }
         _robot->setTargetPositionCascade(motor_id, angle_rad);
-        Serial.printf("  [OK] Moving motor %d to %.4f rad\n", motor_id, angle_rad);
         return;
     }
     
-    // --- 處理 move g<name> ---
-    if (target_str.charAt(0) == 'g') {
+    // --- 3. 處理目標: 群組 "g<name>" ---
+    if (target_str.startsWith("g")) {
         String group_name_short = target_str.substring(1);
-        if (group_name_short.startsWith("l")) { // 腿組: gl0, gl1, etc.
-             if (args.size() != 5) {
-                Serial.println("  [ERROR] Leg group move requires 3 angles. Use: move gl<id> <h> <u> <l>");
-                return;
-             }
-             int leg_id = group_name_short.substring(1).toInt();
-             float h = args[2].toFloat();
-             float u = args[3].toFloat();
-             float l = args[4].toFloat();
-             _robot->setLegJointsCascade(leg_id, h, u, l);
-             Serial.printf("  [OK] Moving leg %d to (H:%.2f, U:%.2f, L:%.2f)\n", leg_id, h, u, l);
 
-        } else if (group_name_short == "f" || group_name_short == "r") { // 腿對
-            if (args.size() != 5) { /* ... error handling ... */ return; }
+        // 3a. 處理功能組 (gh, gu, gl) - 需要1個角度參數
+        if (group_name_short == "h" || group_name_short == "u" || group_name_short == "l") {
+            if (args.size() != 3) {
+                Serial.printf("  [ERROR] Functional group '%s' requires 1 angle. Use: move g%s <angle>\n", group_name_short.c_str(), group_name_short.c_str());
+                return;
+            }
+            RobotController::JointGroup func_group;
+            if (group_name_short == "h") func_group = RobotController::JointGroup::HIP;
+            else if (group_name_short == "u") func_group = RobotController::JointGroup::UPPER;
+            else func_group = RobotController::JointGroup::LOWER;
+            
+            float angle = args[2].toFloat();
+            _robot->setJointGroupPositionCascade(func_group, angle);
+            Serial.printf("  [OK] Moving group '%s' to %.4f rad\n", target_str.c_str(), angle);
+        
+        // 3b. 處理腿部對 (gf, gr) - 需要3個角度參數
+        } else if (group_name_short == "f" || group_name_short == "r") {
+            if (args.size() != 5) { // 1(move)+1(gf/gr)+3(angles) = 5
+                Serial.printf("  [ERROR] Leg pair '%s' requires 3 angles. Use: move g%s <h> <u> <l>\n", group_name_short.c_str(), group_name_short.c_str());
+                return;
+            }
             RobotController::JointGroup pair_group = (group_name_short == "f") ? RobotController::JointGroup::LEG_FRONT : RobotController::JointGroup::LEG_REAR;
             float h = args[2].toFloat();
             float u = args[3].toFloat();
             float l = args[4].toFloat();
             _robot->setLegPairCascade(pair_group, h, u, l);
-             Serial.printf("  [OK] Moving leg pair '%s' to (H:%.2f, U:%.2f, L:%.2f)\n", group_name_short.c_str(), h, u, l);
-             
-        } else { // 功能組: gh, gu, gl
-            if (args.size() != 3) { /* ... error handling ... */ return; }
-            RobotController::JointGroup func_group;
-            if(group_name_short == "h") func_group = RobotController::JointGroup::HIP;
-            else if(group_name_short == "u") func_group = RobotController::JointGroup::UPPER;
-            else if(group_name_short == "l") func_group = RobotController::JointGroup::LOWER;
-            else { Serial.printf("  [ERROR] Unknown functional group: %s\n", target_str.c_str()); return; }
-            float angle = args[2].toFloat();
-            _robot->setJointGroupPositionCascade(func_group, angle);
-            Serial.printf("  [OK] Moving group '%s' to %.4f rad\n", target_str.c_str(), angle);
+            Serial.printf("  [OK] Moving leg pair '%s' symmetrically to (H:%.2f, U:%.2f, L:%.2f)\n", group_name_short.c_str(), h, u, l);
+
+        // 3c. 處理單獨的腿組 (gl0, gl1, etc.) - 需要3個角度參數
+        } else if (group_name_short.startsWith("l") && group_name_short.length() > 1 && isDigit(group_name_short.charAt(1))) {
+            if (args.size() != 5) { // 1(move)+1(gl0)+3(angles) = 5
+                Serial.println("  [ERROR] Leg group move requires 3 angles. Use: move gl<id> <h> <u> <l>");
+                return;
+            }
+            int leg_id = group_name_short.substring(1).toInt();
+            float h = args[2].toFloat();
+            float u = args[3].toFloat();
+            float l = args[4].toFloat();
+            _robot->setLegJointsCascade(leg_id, h, u, l);
+            Serial.printf("  [OK] Moving leg %d to (H:%.2f, U:%.2f, L:%.2f)\n", leg_id, h, u, l);
+        
+        // 3d. 無效的群組名稱
+        } else {
+            Serial.printf("  [ERROR] Unknown group specifier: '%s'. Valid groups: g(h|u|l|f|r) or gl(0-3).\n", target_str.c_str());
         }
         return;
     }
 
-    Serial.printf("  [ERROR] Unknown target for move: '%s'\n", target_str.c_str());
+    // --- 最終的錯誤處理 ---
+    // 如果程式執行到這裡，表示 target_str 不是任何已知的目標類型
+    Serial.printf("  [ERROR] Unknown target for move command: '%s'\n", target_str.c_str());
 }
+
 
 void CommandHandler::handleConfigCommand(const String& action, const std::vector<String>& args) {
     if (action == "mode") {
@@ -364,7 +407,7 @@ void CommandHandler::handleConfigCommand(const String& action, const std::vector
 
 void CommandHandler::handleSystemCommand(const String& action, const std::vector<String>& args) {
     if (action == "status") {
-        _telemetry->printHumanReadableStatus();
+        _telemetry->printAsHumanStatus();
     } else if (action == "cal") {
         _robot->performManualCalibration();
     } else if (action == "stop") {
