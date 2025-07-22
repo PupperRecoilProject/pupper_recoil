@@ -55,6 +55,8 @@ const CascadeParams RobotController::SYSTEM_DEFAULT_PARAMS = {
     .integral_max_error_rad = 0.5f
 };
 
+
+
 // =================================================================
 //   輔助資料結構
 // =================================================================
@@ -67,6 +69,7 @@ const std::map<std::string, RobotController::ParamMask> param_name_to_mask = {
     {"max_vel", RobotController::ParamMask::MASK_MAX_VEL},
     {"max_err", RobotController::ParamMask::MASK_MAX_ERR}
 };
+
 
 
 // =================================================================
@@ -263,114 +266,65 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
     }
 }
 
-// **** NEW **** - 進入級聯控制模式的外部接口
+// 實現新的 setRobotPoseCascade (C. 簡化模式切換邏輯)
 void RobotController::setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad) {
     if (!isCalibrated()) {
         Serial.println("[錯誤] 級聯姿態控制失敗：機器人必須先校準！");
         return;
     }
-
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式。");
-        // 從非級聯模式首次進入時，清除所有速度積分項，以一個乾淨的狀態開始
-        integral_error_vel.fill(0.0f);
-        mode = ControlMode::CASCADE_CONTROL;
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
     
     // 更新目標姿態
     target_positions_rad = pose_rad;
     Serial.println("已設定新的級聯控制目標姿態。");
 }
 
-// 實現新的 setTargetPositionCascade
+// 實現新的 setTargetPositionCascade (C. 簡化模式切換邏輯)
 void RobotController::setTargetPositionCascade(int motorID, float angle_rad) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return;
     if (!isCalibrated()) { /* ... 錯誤提示 ... */ return; }
 
-    // 檢查是否需要切換模式或初始化
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行單關節控制。");
-        
-        // 關鍵：將所有目標凍結在當前位置
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
-        
-        mode = ControlMode::CASCADE_CONTROL;
-        integral_error_vel.fill(0.0f); // 首次進入，重置速度積分項
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
 
     // 更新指定馬達的目標位置
     target_positions_rad[motorID] = angle_rad;
     Serial.printf("  [Cascade] 設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
 }
 
-// 實現新的 setJointGroupPositionCascade (邏輯與上面類似)
+// 實現新的 setJointGroupPositionCascade (C. 簡化模式切換邏輯)
 void RobotController::setJointGroupPositionCascade(JointGroup group, float angle_rad) {
-    // 步驟 1: 安全檢查 - 未校準則不執行
     if (!isCalibrated()) {
         Serial.println("[錯誤] 分組控制失敗：機器人必須先校準 (cal)！");
         return;
     }
 
-    // 步驟 2 & 3: 模式管理 - 如果不是串級模式，則執行安全切換
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("非串級模式，正在執行安全切換至 CASCADE_CONTROL...");
-        
-        // 步驟 3.1: 凍結 - 將所有目標位置刷新為當前實際位置，防止亂動
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
-        
-        // 步驟 3.2: 切換 - 設定新模式
-        mode = ControlMode::CASCADE_CONTROL;
-        // 步驟 3.3: 重置 - 清除舊的積分誤差
-        integral_error_vel.fill(0.0f);
-        Serial.println("模式切換完成，已凍結所有關節。");
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
 
-    // 步驟 4: 確定目標 - 根據組別確定起始索引
     int start_index = -1;
     const char* group_name = "UNKNOWN";
     switch(group) {
-        case JointGroup::HIP:
-            start_index = 0; // 馬達ID 0, 3, 6, 9
-            group_name = "HIP";
-            break;
-        case JointGroup::UPPER:
-            start_index = 1; // 馬達ID 1, 4, 7, 10
-            group_name = "UPPER";
-            break;
-        case JointGroup::LOWER:
-            start_index = 2; // 馬達ID 2, 5, 8, 11
-            group_name = "LOWER";
-            break;
-        // <<< ADDED: 為新群組增加錯誤提示 >>>
-        case JointGroup::LEG0:
-        case JointGroup::LEG1:
-        case JointGroup::LEG2:
-        case JointGroup::LEG3:
-        case JointGroup::LEG_FRONT:
-        case JointGroup::LEG_REAR:
-             Serial.println("[錯誤] 腿部群組需要3個角度，請使用 'leg' 或 'leg_pair' 指令。");
-             return; // 直接返回
+        case JointGroup::HIP:   start_index = 0; group_name = "HIP";   break;
+        case JointGroup::UPPER: start_index = 1; group_name = "UPPER"; break;
+        case JointGroup::LOWER: start_index = 2; group_name = "LOWER"; break;
+        default:
+             Serial.println("[錯誤] 此函式僅適用於 HIP/UPPER/LOWER 組。");
+             return;
     }
     
     Serial.printf("--> [Cascade] 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
 
-    // 步驟 5: 更新目標 - 遍歷並更新屬於該組的馬達的目標位置
     if (start_index != -1) {
         for (int i = start_index; i < NUM_ROBOT_MOTORS; i += 3) {
             target_positions_rad[i] = angle_rad;
         }
-    } else {
-        Serial.println("[錯誤] 無效的關節組別。");
     }
 }
 
-
+// 實現新的 setLegJointsCascade (C. 簡化模式切換邏輯)
 void RobotController::setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad) {
-    // 步驟 1: 安全檢查
     if (leg_id < 0 || leg_id > 3) {
         Serial.println("[錯誤] 無效的腿部 ID。請使用 0-3。");
         return;
@@ -380,29 +334,21 @@ void RobotController::setLegJointsCascade(int leg_id, float hip_rad, float upper
         return;
     }
 
-    // 步驟 2: 模式管理 (與其他 Cascade 函式相同)
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行腿部控制。");
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
-        mode = ControlMode::CASCADE_CONTROL;
-        integral_error_vel.fill(0.0f);
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
     
-    // 步驟 3: 計算並更新目標位置
     int base_motor_id = leg_id * 3;
-    target_positions_rad[base_motor_id + 0] = hip_rad;    // Hip joint
-    target_positions_rad[base_motor_id + 1] = upper_rad;  // Upper leg joint
-    target_positions_rad[base_motor_id + 2] = lower_rad;  // Lower leg joint
+    target_positions_rad[base_motor_id + 0] = hip_rad;
+    target_positions_rad[base_motor_id + 1] = upper_rad;
+    target_positions_rad[base_motor_id + 2] = lower_rad;
     
     Serial.printf("--> [Cascade] 設定腿 %d 關節角度為 (H:%.2f, U:%.2f, L:%.2f) rad。\n", 
                   leg_id, hip_rad, upper_rad, lower_rad);
 }
 
-// <<< ADDED: 實現控制腿部對的新函式 >>>
+
+// 實現新的 setLegPairCascade (C. 簡化模式切換邏輯)
 void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float upper_rad, float lower_rad) {
-    // 步驟 1: 安全檢查
     if (group != JointGroup::LEG_FRONT && group != JointGroup::LEG_REAR) {
         Serial.println("[錯誤] 此函式僅適用於 LEG_FRONT 或 LEG_REAR。");
         return;
@@ -412,41 +358,43 @@ void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float u
         return;
     }
 
-    // 步驟 2: 模式管理
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行腿部對控制。");
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
-        mode = ControlMode::CASCADE_CONTROL;
-        integral_error_vel.fill(0.0f);
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
 
-    // 步驟 3: 根據對稱性更新目標位置
     const char* group_name = (group == JointGroup::LEG_FRONT) ? "前腿對" : "後腿對";
     Serial.printf("--> [Cascade] 設定 %s 角度為 (H:%.2f, U:%.2f, L:%.2f) rad (右腿為基準)。\n", 
                   group_name, hip_rad, upper_rad, lower_rad);
 
     if (group == JointGroup::LEG_FRONT) {
-        // Front-Right Leg (Leg 0, Motors 0, 1, 2) - 直接使用給定角度
-        target_positions_rad[0] = hip_rad;
-        target_positions_rad[1] = upper_rad;
-        target_positions_rad[2] = lower_rad;
-        // Front-Left Leg (Leg 1, Motors 3, 4, 5) - 鏡像角度
-        target_positions_rad[3] = -hip_rad;
-        target_positions_rad[4] = -upper_rad;
-        target_positions_rad[5] = -lower_rad;
+        target_positions_rad[0] = hip_rad;    target_positions_rad[1] = upper_rad;   target_positions_rad[2] = lower_rad;
+        target_positions_rad[3] = -hip_rad;   target_positions_rad[4] = -upper_rad;  target_positions_rad[5] = -lower_rad;
     } else { // LEG_REAR
-        // Rear-Right Leg (Leg 2, Motors 6, 7, 8) - 直接使用給定角度
-        target_positions_rad[6] = hip_rad;
-        target_positions_rad[7] = upper_rad;
-        target_positions_rad[8] = lower_rad;
-        // Rear-Left Leg (Leg 3, Motors 9, 10, 11) - 鏡像角度
-        target_positions_rad[9] = -hip_rad;
-        target_positions_rad[10] = -upper_rad;
-        target_positions_rad[11] = -lower_rad;
+        target_positions_rad[6] = hip_rad;    target_positions_rad[7] = upper_rad;   target_positions_rad[8] = lower_rad;
+        target_positions_rad[9] = -hip_rad;   target_positions_rad[10] = -upper_rad; target_positions_rad[11] = -lower_rad;
     }
 }
+
+// 相對運動函式
+void RobotController::moveMotorRelative_rad(int motorID, float delta_rad) {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
+        Serial.println("[錯誤] 無效的馬達 ID。");
+        return;
+    }
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 相對運動失敗：機器人必須先校準！");
+        return;
+    }
+
+    // 呼叫輔助函式來確保處於正確模式
+    ensureCascadeMode();
+    
+    // 在當前目標位置的基礎上進行增減
+    target_positions_rad[motorID] += delta_rad;
+    
+    Serial.printf("  [Cascade] 馬達 %d 相對移動 %.4f rad, 新目標: %.4f rad。\n", 
+                  motorID, delta_rad, target_positions_rad[motorID]);
+}
+
 
 
 // =================================================================
@@ -573,6 +521,27 @@ std::vector<int> RobotController::getMotorIdsForGroup(const std::string& group_n
     return {}; // 返回空向量如果組名無效
 }
 
+// 實現新的私有輔助函式
+void RobotController::ensureCascadeMode() {
+    // 檢查當前模式是否為 CASCADE_CONTROL
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("非串級模式，正在執行安全切換至 CASCADE_CONTROL...");
+        
+        // 步驟 1: 凍結 - 將所有目標位置刷新為當前實際位置，防止亂動
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
+        // 步驟 2: 切換 - 設定新模式
+        mode = ControlMode::CASCADE_CONTROL;
+        
+        // 步驟 3: 重置 - 清除舊的積分誤差，以一個乾淨的狀態開始
+        integral_error_vel.fill(0.0f);
+        
+        Serial.println("模式切換完成，已凍結所有關節。");
+    }
+}
+
 
 
 // =================================================================
@@ -660,7 +629,7 @@ void RobotController::updateWiggleTest() {
     sendCurrents(_target_currents_mA.data(), true);
 }
 
-// **** NEW **** - 級聯控制的完整更新邏輯
+// 級聯控制的完整更新邏輯
 void RobotController::updateCascadeControl() {
     const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H;
 

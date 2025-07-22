@@ -102,6 +102,7 @@ public:
     void setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad);
     void setTargetPositionCascade(int motorID, float angle_rad);
     void setJointGroupPositionCascade(JointGroup group, float angle_rad);
+    void moveMotorRelative_rad(int motorID, float delta_rad);
 
     // ---新增關節組(整隻腿)---
     void setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad);
@@ -126,6 +127,7 @@ public:
 
 private:
     // --- 私有函式 (Private Methods) ---
+    void ensureCascadeMode(); // 確保機器人處於級聯控制模式。
     void updatePositionControl();
     void updateWiggleTest();
     void updateCascadeControl();
