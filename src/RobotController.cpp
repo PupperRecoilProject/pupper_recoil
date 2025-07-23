@@ -367,10 +367,10 @@ void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float u
 
     if (group == JointGroup::LEG_FRONT) {
         target_positions_rad[0] = hip_rad;    target_positions_rad[1] = upper_rad;   target_positions_rad[2] = lower_rad;
-        target_positions_rad[3] = -hip_rad;   target_positions_rad[4] = -upper_rad;  target_positions_rad[5] = -lower_rad;
+        target_positions_rad[3] = hip_rad;    target_positions_rad[4] = upper_rad;   target_positions_rad[5] = lower_rad;
     } else { // LEG_REAR
         target_positions_rad[6] = hip_rad;    target_positions_rad[7] = upper_rad;   target_positions_rad[8] = lower_rad;
-        target_positions_rad[9] = -hip_rad;   target_positions_rad[10] = -upper_rad; target_positions_rad[11] = -lower_rad;
+        target_positions_rad[9] = hip_rad;    target_positions_rad[10] = upper_rad;  target_positions_rad[11] = lower_rad;
     }
 }
 

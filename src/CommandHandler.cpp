@@ -76,7 +76,7 @@ void CommandHandler::executeCommand(String command) {
     {
         handleSystemCommand(args);
     } else {
-        Serial.printf("  [ERROR] Unknown command action: '%s'\n", action.c_str());
+        Serial.printf("[ERROR] Unknown command action: '%s'\n", action.c_str());
     }
 }
 
