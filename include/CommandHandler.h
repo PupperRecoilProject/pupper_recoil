@@ -9,6 +9,7 @@
 class RobotController;
 class TelemetrySystem;
 struct CascadeParams; // 前向宣告 CascadeParams 結構體
+struct ParamSourceInfo;
 
 
 /**

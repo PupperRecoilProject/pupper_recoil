@@ -71,35 +71,40 @@ void setup() {
     Serial.println("[SUCCESS] Telemetry System Initialized.");
     myCommander.begin(&myRobot, &myTelemetry);
     Serial.println("[SUCCESS] Command Handler Initialized.");
+
     Serial.println("========================================");
-    Serial.println("Commands (press Enter to execute):");
-    Serial.println("--- High-Level Control (using CASCADE controller) ---");
-    Serial.println("  stand         - Robot enters stable standing pose.");
-    Serial.println("  pos <id> <rad> - Set a single motor's position. Smoothly controlled.");
-    Serial.println("  group <g> <rad> - Set a joint group's position (g: hip, upper, lower).");
-    Serial.println("  leg <id> <h> <u> <l> - Set a single leg's joints (id:0-3, angles in rad).");
-    Serial.println("  leg_pair <g> <h> <u> <l> - Set leg pair joints (g:front/rear, angles in rad).");
-    Serial.println(""); // 空行，用於分隔
-    Serial.println("--- Cascade Controller Tuning ---");
-    Serial.println("  set_param <id> <name> <val> - Set a param (name: c, kp, ki, max_vel, max_err)");
-    Serial.println("  get_params <id|all>         - Get params for a motor or all motors.");
-    Serial.println(""); // 空行
-    Serial.println("--- System & Calibration ---");
-    Serial.println("  cal           - Perform manual calibration. Must be in IDLE mode.");
-    Serial.println("  stop          - Stop all motors and enter IDLE mode. (SAFETY FIRST!)");
-    Serial.println("  reboot        - Reboot the microcontroller.");
-    Serial.println(""); // 空行
-    Serial.println("--- Testing & Debugging ---");
-    Serial.println("  monitor <mode>        - Set output format (modes: human, csv, dashboard).");
-    Serial.println("  focus <id|off>        - Focus on a motor for all modes (e.g., focus 3, focus off).");
-    Serial.println("  freq <hz>             - Set monitor print frequency (e.g., 1, 10, 50).");
-    Serial.println("--- Low-Level Testing ---");
-    Serial.println("  test_pid <id> <rad> - Test the old SINGLE-LOOP PID controller.");
-    Serial.println("  test_wiggle <id>    - Start wiggle test for a motor.");
-    Serial.println("  raw <id> <mA>       - Manually set raw current for one motor.");
-    Serial.println("  print <on|off>      - Enable/Disable extra data printing.");
-    Serial.println("  postest ...           - Test position control with custom gains.");
+    Serial.println(" Pupper Robot :: Command Set v3.3");
+    Serial.println("========================================");
+    Serial.println("--- Movement ---");
+    Serial.println("  stand                     - Enter standing pose.");
+    Serial.println("  move m<id> <rad>          - Absolute move for a motor.");
+    Serial.println("  move m<id> += <rad>       - Relative move for a motor.");
+    Serial.println("  move g<h|u|l> <rad>       - Move a joint group (hip, upper, lower).");
+    Serial.println("  move gl<0-3> <h> <u> <l>  - Set a single leg's joints.");
+    Serial.println("  move g<f|r> <h> <u> <l>   - Set leg pair joints (front/rear).");
+    Serial.println("  move all <rad*12>         - Set all 12 joint angles.");
+    Serial.println("");
+    Serial.println("--- Parameters ---");
+    Serial.println("  set <target> <p> <v>      - Set a param (p: c,kp,ki,max_vel,max_err).");
+    Serial.println("  get <target> [source]     - Get params for target.");
+    Serial.println("  reset <target> [p]        - Reset params for target.");
+    Serial.println("  (Target: all, global, m<id>, g<name>)");
+    Serial.println("");
+    Serial.println("--- Telemetry & Monitoring ---");
+    Serial.println("  status                    - Print a one-time full status report.");
+    Serial.println("  monitor <h|c|d>           - Set telemetry format (human, csv, dashboard).");
+    Serial.println("  monitor freq <hz>         - Set telemetry frequency.");
+    Serial.println("  monitor <pause|resume>    - Pause/Resume telemetry stream.");
+    Serial.println("  focus <m<id>|off>         - Set/unset focus motor for telemetry.");
+    Serial.println("");
+    Serial.println("--- System & Testing ---");
+    Serial.println("  cal                       - Perform manual calibration.");
+    Serial.println("  stop                      - Stop all motors (enter IDLE mode).");
+    Serial.println("  reboot                    - Reboot the microcontroller.");
+    Serial.println("  raw m<id> <mA>            - Manually set raw current.");
+    Serial.println("  test wiggle m<id>         - Start wiggle test for a motor.");
     Serial.println("========================================\n");
+
 
     
     digitalWrite(LED_BUILTIN, LOW);

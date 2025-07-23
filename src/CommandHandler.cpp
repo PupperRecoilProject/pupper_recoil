@@ -27,33 +27,38 @@ void CommandHandler::begin(RobotController* robot, TelemetrySystem* telemetry) {
 //   主指令執行函式 (Top-Level Command Executor)
 // =================================================================
 void CommandHandler::executeCommand(String command) {
+    // 防呆：確保核心模組已初始化
     if (!_robot || !_telemetry) {
         Serial.println("[FATAL] CommandHandler not initialized!");
         return;
     }
+
+    // 將指令傳給遙測系統，並在終端回顯
+    _telemetry->setLastCommand(command);
+    Serial.printf("[CMD] Executing: %s\n", command.c_str());
     
-    // 1. 將指令字串分割成參數列表 (Tokenizing)
+    // 步驟 1: 將指令字串按空格分割成參數列表 (Tokenizing)
     std::vector<String> args;
-    String current_arg = "";
+    String current_arg;
     for (size_t i = 0; i < command.length(); i++) {
-        if (command.charAt(i) == ' ') {
+        char c = command.charAt(i);
+        if (c == ' ') {
             if (current_arg.length() > 0) {
                 args.push_back(current_arg);
                 current_arg = "";
             }
         } else {
-            current_arg += command.charAt(i);
+            current_arg += c;
         }
     }
     if (current_arg.length() > 0) {
         args.push_back(current_arg);
     }
 
-    if (args.empty()) {
-        return; // 空指令，直接返回
-    }
+    // 如果沒有參數（例如，只按了Enter），則直接返回
+    if (args.empty()) return;
 
-    // 2. 第一層分派：根據指令動詞分派到對應的處理函式
+    // 步驟 2: 第一層分派 - 根據指令動詞分派到對應的處理函式
     String action = args[0];
     action.toLowerCase();
 
@@ -65,9 +70,9 @@ void CommandHandler::executeCommand(String command) {
         handleGetCommand(args);
     } else if (action == "reset") {
         handleResetCommand(args);
-    } else if (action == "mode" || action == "freq" || action == "focus" ||
-               action == "cal"  || action == "stop" || action == "reboot" ||
-               action == "raw"  || action == "test")
+    } else if (action == "monitor" || action == "focus" || action == "cal"  || 
+               action == "stop"    || action == "reboot"  || action == "raw" || 
+               action == "test")
     {
         handleSystemCommand(args);
     } else {
@@ -85,6 +90,7 @@ void CommandHandler::handleMoveCommand(const std::vector<String>& args) {
     String action = args[0];
     action.toLowerCase();
 
+    // 處理特例 "stand"
     if (action == "stand") {
         if (args.size() != 1) { Serial.println("  [ERROR] Use: stand"); return; }
         Serial.println("  [CMD] Robot standing up...");
@@ -100,27 +106,29 @@ void CommandHandler::handleMoveCommand(const std::vector<String>& args) {
     String target_str = args[1];
     target_str.toLowerCase();
 
-    if (target_str.startsWith("m")) { // move m<id> <angle> / +<angle> / -<angle>
-        // ... (參數數量檢查不變) ...
-        // --- 強化：檢查 ID 是否為純數字 ---
-        String id_str = target_str.substring(1);
-        for(char c : id_str) { if(!isDigit(c)) { Serial.printf("  [ERROR] Invalid motor ID: '%s'\n", id_str.c_str()); return; } }
-        int motor_id = id_str.toInt();
-        // --- 強化：檢查 ID 範圍 ---
-        if (motor_id < 0 || motor_id >= NUM_ROBOT_MOTORS) { Serial.printf("  [ERROR] Motor ID %d out of range (0-%d).\n", motor_id, NUM_ROBOT_MOTORS - 1); return; }
-        
-        String angle_str = args[2];
-        float angle = angle_str.toFloat();
-        // --- 強化：檢查 toFloat 是否成功 (防止 "move m0 abc" 這樣的指令) ---
-        if (angle == 0.0f && angle_str != "0" && angle_str != "0.0" && angle_str != "+0" && angle_str != "-0") {
-            Serial.printf("  [ERROR] Invalid angle value: '%s'\n", angle_str.c_str());
-            return;
-        }
-
-        if (angle_str.startsWith("+") || angle_str.startsWith("-")) {
-            _robot->moveMotorRelative_rad(motor_id, angle);
-        } else {
-            _robot->setTargetPositionCascade(motor_id, angle);
+    // --- 修改：實現精煉後的相對/絕對運動邏輯 ---
+    if (target_str.startsWith("m")) {
+        // 情況 1: 絕對運動 (參數數量為 3)
+        // 語法: move m<id> <value>
+        if (args.size() == 3) {
+            String id_str = target_str.substring(1);
+            // 可以在此處加入對 id_str 和 args[2] 的健壯性驗證
+            int motor_id = id_str.toInt();
+            float value = args[2].toFloat();
+            _robot->setTargetPositionCascade(motor_id, value);
+        } 
+        // 情況 2: 相對運動 (參數數量為 4，且第3個參數是 "+=")
+        // 語法: move m<id> += <value>
+        else if (args.size() == 4 && args[2] == "+=") {
+            String id_str = target_str.substring(1);
+            // 可以在此處加入對 id_str 和 args[3] 的健壯性驗證
+            int motor_id = id_str.toInt();
+            float value = args[3].toFloat();
+            _robot->moveMotorRelative_rad(motor_id, value);
+        } 
+        // 其他所有情況都是錯誤的語法
+        else {
+            Serial.println("  [ERROR] Invalid syntax. Use 'move m<id> <angle>' for absolute or 'move m<id> += <angle>' for relative.");
         }
 
     } else if (target_str.startsWith("g")) { // move g<name> ...
@@ -308,21 +316,30 @@ void CommandHandler::handleSystemCommand(const std::vector<String>& args) {
     String action = args[0];
     action.toLowerCase();
 
-    if(action == "mode") {
-        if (args.size() != 2) { Serial.println("  [ERROR] Use: mode <h/c/d>"); return; }
-        String mode_char = args[1];
-        mode_char.toLowerCase();
-        if (mode_char == "h") _telemetry->setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
-        else if (mode_char == "c") _telemetry->setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
-        else if (mode_char == "d") _telemetry->setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
-        else Serial.println("  [ERROR] Unknown mode. Use h(human), c(csv), or d(dashboard).");
-    } else if (action == "freq") {
-        if (args.size() != 2) { Serial.println("  [ERROR] Use: freq <hz>"); return; }
-        int hz = args[1].toInt();
-        if (hz > 0) {
-            g_print_interval_millis = 1000 / hz;
-            Serial.printf("  [OK] Monitor frequency set to %d Hz (interval: %lu ms).\n", hz, g_print_interval_millis);
-        } else { Serial.println("  [ERROR] Frequency must be > 0."); }
+    if(action == "monitor") {
+        if (args.size() < 2) { Serial.println("  [ERROR] Use: monitor <subcommand> [value]"); return; }
+        String sub_cmd = args[1];
+        sub_cmd.toLowerCase();
+
+        // 格式切換 (吸收舊 mode 指令)
+        if (sub_cmd == "h" || sub_cmd == "human") _telemetry->setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
+        else if (sub_cmd == "c" || sub_cmd == "csv") _telemetry->setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
+        else if (sub_cmd == "d" || sub_cmd == "dashboard") _telemetry->setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
+        // 暫停/恢復
+        else if (sub_cmd == "pause") _telemetry->pause();
+        else if (sub_cmd == "resume") _telemetry->resume();
+        // 頻率設定 (吸收 freq 指令)
+        else if (sub_cmd == "freq") {
+            if (args.size() != 3) { Serial.println("  [ERROR] Use: monitor freq <hz>"); return; }
+            int hz = args[2].toInt();
+            if (hz > 0) {
+                g_print_interval_millis = 1000 / hz;
+                Serial.printf("  [OK] Monitor frequency set to %d Hz.\n", hz);
+            } else { Serial.println("  [ERROR] Frequency must be > 0."); }
+        } else {
+            Serial.printf("  [ERROR] Unknown 'monitor' subcommand: %s\n", sub_cmd.c_str());
+        }
+
     } else if (action == "focus") {
         if (args.size() != 2) { Serial.println("  [ERROR] Use: focus <m_id|off>"); return; }
         String target = args[1];
@@ -330,22 +347,27 @@ void CommandHandler::handleSystemCommand(const std::vector<String>& args) {
         if (target == "off") _telemetry->setFocusMotor(-1);
         else if (target.startsWith("m")) _telemetry->setFocusMotor(target.substring(1).toInt());
         else Serial.println("  [ERROR] Invalid focus target.");
+
     } else if (action == "cal") {
         if (args.size() != 1) { Serial.println("  [ERROR] Use: cal"); return; }
         _robot->performManualCalibration();
+
     } else if (action == "stop") {
         if (args.size() != 1) { Serial.println("  [ERROR] Use: stop"); return; }
         _robot->setIdle();
+    
     } else if (action == "reboot") {
         if (args.size() != 1) { Serial.println("  [ERROR] Use: reboot"); return; }
         Serial.println("Rebooting system...");
         delay(100);
         void (*resetFunc)(void) = 0;
         resetFunc();
+    
     } else if (action == "raw") {
         if(args.size() != 3 || !String(args[1]).toLowerCase().startsWith("m")) { Serial.println("  [ERROR] Use: raw m<id> <mA>"); return; }
         int motor_id = String(args[1]).substring(1).toInt();
         _robot->setSingleMotorCurrent(motor_id, args[2].toInt());
+    
     } else if (action == "test") {
         if(args.size() != 3 || args[1] != "wiggle" || !String(args[2]).toLowerCase().startsWith("m")) { Serial.println("  [ERROR] Use: test wiggle m<id>"); return; }
         int motor_id = String(args[2]).substring(1).toInt();

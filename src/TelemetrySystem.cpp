@@ -8,15 +8,38 @@ TelemetrySystem::TelemetrySystem(RobotController* robot, SimpleAHRS* ahrs, Motor
     : _robot(robot), 
       _ahrs(ahrs), 
       _motors(motors),
-      _current_mode(PrintMode::HUMAN_STATUS), // 預設啟動時為人類可讀模式
-      _focus_motor_id(-1),                    // 焦點馬達ID初始化為無效值-1
-      _csv_header_printed(false)              // CSV標頭尚未打印
+      _current_mode(PrintMode::HUMAN_STATUS), // 預設為人類可讀模式
+      _focus_motor_id(-1),                    // 預設無焦點馬達
+      _csv_header_printed(false),             // CSV標頭尚未打印
+      _is_paused(false),                      // 預設遙測不暫停
+      _last_command("None")                   // 預設最後指令為"None"
 {
 }
 
 void TelemetrySystem::begin() {
     // 目前不需要任何特別的初始化操作，保留此函式以備未來擴充
 }
+
+
+// --- 新增：暫停/恢復/設定指令 的函式實現 ---
+void TelemetrySystem::pause() {
+    if (!_is_paused) {
+        _is_paused = true;
+        Serial.println("\n--> [Telemetry] Paused. Use 'monitor resume' to continue.");
+    }
+}
+
+void TelemetrySystem::resume() {
+    if (_is_paused) {
+        _is_paused = false;
+        Serial.println("--> [Telemetry] Resumed.");
+    }
+}
+
+void TelemetrySystem::setLastCommand(const String& cmd) {
+    _last_command = cmd;
+}
+
 
 // 設定新的打印模式 (格式)
 void TelemetrySystem::setPrintMode(PrintMode mode) {
@@ -56,6 +79,12 @@ const char* TelemetrySystem::getModeString() {
 
 // 更新並打印數據的核心函式
 void TelemetrySystem::updateAndPrint() {
+
+    // 在函式開頭檢查暫停狀態
+    if (_is_paused) {
+        return; // 如果已暫停，則不執行任何打印操作
+    }
+
     // 步驟 1: 從所有源頭收集最新數據
     collectData();
 
@@ -101,7 +130,11 @@ void TelemetrySystem::printAsHumanStatus() {
     char buf[120];
 
     Serial.println("---------------- 機器人狀態 ----------------");
-    snprintf(buf, sizeof(buf), "機器人模式: %s | 是否校準: %s | 焦點: %s", 
+    
+    snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str()); // --- 修改：在頂部增加 "Last Cmd" 的顯示 ---
+    Serial.println(buf);
+
+    snprintf(buf, sizeof(buf), "模式: %s | 是否校準: %s | 焦點: %s", 
              _telemetry_data.robot_mode, 
              _telemetry_data.is_calibrated ? "是" : "否",
              _focus_motor_id == -1 ? "全局" : String(_focus_motor_id).c_str());
@@ -171,8 +204,12 @@ void TelemetrySystem::printAsDashboard() {
     
     // 使用 VT100/ANSI 轉義序列來清空終端屏幕並將光標移動到左上角
     Serial.println("--- 單馬達儀表板 ---");
+    snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str());
+    Serial.println(buf);
+    
     snprintf(buf, sizeof(buf), "監控馬達 ID: %d | 機器人模式: %s", _focus_motor_id, _robot->getModeString());
     Serial.println(buf);
+
     Serial.println("-----------------------------------------------------------------");
     Serial.println("控制環      |    目標值    |    實際值    |     誤差     ");
     Serial.println("-----------------------------------------------------------------");
