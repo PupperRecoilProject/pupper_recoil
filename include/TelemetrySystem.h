@@ -7,6 +7,8 @@
 #include "RobotController.h" // 需要知道 RobotController 的定義，以便獲取其狀態和詳細調試信息
 #include "AHRS.h"            // 需要知道 SimpleAHRS 的定義，以便獲取姿態數據
 #include "MotorController.h" // 需要知道 MotorController 的定義，以便獲取馬達的實際電流
+#include "LSM6DSO_SPI.h"  // <<< 新增：包含 IMU 的頭文件
+
 
 // 這是一個遙測與監控系統的模組化類別。
 // 它的職責是從機器人的各個部分收集數據，並根據所選模式以不同的格式將其打印出來。
@@ -25,7 +27,7 @@ public:
      * @param ahrs 指向 SimpleAHRS 物件的指標。
      * @param motors 指向 MotorController 物件的指標。
      */
-    TelemetrySystem(RobotController* robot, SimpleAHRS* ahrs, MotorController* motors);
+    TelemetrySystem(RobotController* robot, SimpleAHRS* ahrs, MotorController* motors, LSM6DSO* imu);
 
     // --- 核心生命週期函式 ---
     void begin();
@@ -60,6 +62,8 @@ private:
         const char* robot_mode;     // 機器人當前的控制模式
         bool is_calibrated;         // 機器人是否已校準
         float roll, pitch, yaw;     // AHRS 姿態數據 (度)
+        // 根據指南 v1.0 新增 IMU 加速度數據欄位
+        std::array<float, 3> imu_acc_g; // IMU 加速度 (g)
         // 所有馬達的數據陣列
         std::array<float, NUM_ROBOT_MOTORS> motor_positions_rad;
         std::array<float, NUM_ROBOT_MOTORS> motor_velocities_rad_s;
@@ -77,6 +81,7 @@ private:
     RobotController* _robot;
     SimpleAHRS* _ahrs;
     MotorController* _motors;
+    LSM6DSO* _imu; // <<< 新增：增加 _imu 指標成員
     
     // --- 內部狀態變數 ---
     PrintMode _current_mode;      // 當前的輸出模式

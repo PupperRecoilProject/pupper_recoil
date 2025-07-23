@@ -15,7 +15,7 @@ LSM6DSO         myIMU;
 MotorController myMotorControl;
 RobotController myRobot(&myMotorControl);
 SimpleAHRS      myAHRS;
-TelemetrySystem myTelemetry(&myRobot, &myAHRS, &myMotorControl); 
+TelemetrySystem myTelemetry(&myRobot, &myAHRS, &myMotorControl, &myIMU); 
 CommandHandler  myCommander;
 
 // =================================================================
