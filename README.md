@@ -138,4 +138,20 @@
 ---
 
 ## 🏗️ 專案結構 (Project Structure)
-
+```
+.
+├── include/           # 頭文件
+│   ├── AHRS.h
+│   ├── CommandHandler.h
+│   ├── MotorController.h
+│   ├── RobotController.h
+│   └── TelemetrySystem.h
+├── src/               # 原始碼
+│   ├── AHRS.cpp
+│   ├── CommandHandler.cpp
+│   ├── homing_main.cpp  # 主程式
+│   ├── MotorController.cpp
+│   ├── RobotController.cpp
+│   └── TelemetrySystem.cpp
+└── platformio.ini     # PlatformIO 配置文件
+```
