@@ -3,7 +3,7 @@
 這是一個為四足機器人設計的高性能、模組化控制系統韌體。它運行在 Arduino 相容的微控制器上，提供即時的姿態控制、參數調校和豐富的遙測功能。
 
 <!-- 可選：在這裡放一張機器人的酷炫照片或 GIF 動畫 -->
-![Pupper Robot](images\robot-image.jpg)
+![Pupper Robot](images/robot-image.jpg)
 
 ## ✨ 核心特性 (Features)
 
