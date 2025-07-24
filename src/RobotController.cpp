@@ -3,7 +3,8 @@
 #include "RobotController.h"
 #include <Arduino.h>
 #include <cstring> // 為了使用 memcpy
-
+#include <cmath>
+#include <map>
 
 
 // =================================================================
@@ -45,14 +46,39 @@ const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad = {
     -LOWER_LEG_JOINT_RAD             // RL lower leg
 };
 
+// 定義在 .h 中宣告的靜態常數系統預設參數
+const CascadeParams RobotController::SYSTEM_DEFAULT_PARAMS = {
+    .c = 16.0f,
+    .vel_kp = 500.0f,
+    .vel_ki = 0.0f,
+    .max_target_velocity_rad_s = 8.0f,
+    .integral_max_error_rad = 0.5f
+};
+
+
+
+// =================================================================
+//   輔助資料結構
+// =================================================================
+const std::map<std::string, RobotController::ParamMask> param_name_to_mask = {
+    {"c",       RobotController::ParamMask::MASK_C},
+    {"kp",      RobotController::ParamMask::MASK_VEL_KP},
+    {"vel_kp",  RobotController::ParamMask::MASK_VEL_KP}, // "kp" 和 "vel_kp" 是別名
+    {"ki",      RobotController::ParamMask::MASK_VEL_KI},
+    {"vel_ki",  RobotController::ParamMask::MASK_VEL_KI}, // "ki" 和 "vel_ki" 是別名
+    {"max_vel", RobotController::ParamMask::MASK_MAX_VEL},
+    {"max_err", RobotController::ParamMask::MASK_MAX_ERR}
+};
+
 
 
 // =================================================================
 //   構造函式 與 生命週期函式
 // =================================================================
 
-RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctrl) {
-    mode = ControlMode::IDLE;
+RobotController::RobotController(MotorController* motor_ctrl) 
+    : motors(motor_ctrl), mode(ControlMode::IDLE) 
+{
     direction_multipliers = { 1,  1, -1,
                              -1, -1,  1,
                               1,  1, -1,
@@ -60,9 +86,13 @@ RobotController::RobotController(MotorController* motor_ctrl) : motors(motor_ctr
     target_positions_rad.fill(0.0f);
     manual_current_commands.fill(0);
     integral_error_rad_s.fill(0.0f);
-    integral_error_vel.fill(0.0f); // **** NEW **** 初始化速度積分項
     _target_currents_mA.fill(0);
-    is_joint_calibrated.fill(false); // 明確地將所有關節的校準狀態初始化為 false。
+    is_joint_calibrated.fill(false);
+       
+    // 初始化狀態變數
+    integral_error_vel.fill(0.0f);
+    _target_vel_rad_s.fill(0.0f);
+    _vel_error_rad_s.fill(0.0f);
 }
 
 void RobotController::begin() {
@@ -213,6 +243,15 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
             start_index = 2; // 馬達ID 2, 5, 8, 11
             group_name = "LOWER";
             break;
+                // <<< ADDED: 為新群組增加錯誤提示 >>>
+        case JointGroup::LEG0:
+        case JointGroup::LEG1:
+        case JointGroup::LEG2:
+        case JointGroup::LEG3:
+        case JointGroup::LEG_FRONT:
+        case JointGroup::LEG_REAR:
+             Serial.println("[錯誤] 腿部群組需要3個角度，請使用 'leg' 或 'leg_pair' 指令。");
+             return; // 直接返回，不執行後續操作  
     }
     
     Serial.printf("--> 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
@@ -227,102 +266,183 @@ void RobotController::setJointGroupPosition_rad(JointGroup group, float angle_ra
     }
 }
 
-// **** NEW **** - 進入級聯控制模式的外部接口
+// 實現新的 setRobotPoseCascade (C. 簡化模式切換邏輯)
 void RobotController::setRobotPoseCascade(const std::array<float, NUM_ROBOT_MOTORS>& pose_rad) {
     if (!isCalibrated()) {
         Serial.println("[錯誤] 級聯姿態控制失敗：機器人必須先校準！");
         return;
     }
-
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式。");
-        // 從非級聯模式首次進入時，清除所有速度積分項，以一個乾淨的狀態開始
-        integral_error_vel.fill(0.0f);
-        mode = ControlMode::CASCADE_CONTROL;
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
     
     // 更新目標姿態
     target_positions_rad = pose_rad;
     Serial.println("已設定新的級聯控制目標姿態。");
 }
 
-// 實現新的 setTargetPositionCascade
+// 實現新的 setTargetPositionCascade (C. 簡化模式切換邏輯)
 void RobotController::setTargetPositionCascade(int motorID, float angle_rad) {
     if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return;
     if (!isCalibrated()) { /* ... 錯誤提示 ... */ return; }
 
-    // 檢查是否需要切換模式或初始化
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("切換至 CASCADE_CONTROL 模式，準備進行單關節控制。");
-        
-        // 關鍵：將所有目標凍結在當前位置
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
-        
-        mode = ControlMode::CASCADE_CONTROL;
-        integral_error_vel.fill(0.0f); // 首次進入，重置速度積分項
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
 
     // 更新指定馬達的目標位置
     target_positions_rad[motorID] = angle_rad;
     Serial.printf("  [Cascade] 設定馬達 %d 的目標位置為 %.4f rad。\n", motorID, angle_rad);
 }
 
-// 實現新的 setJointGroupPositionCascade (邏輯與上面類似)
+// 實現新的 setJointGroupPositionCascade (C. 簡化模式切換邏輯)
 void RobotController::setJointGroupPositionCascade(JointGroup group, float angle_rad) {
-    // 步驟 1: 安全檢查 - 未校準則不執行
     if (!isCalibrated()) {
         Serial.println("[錯誤] 分組控制失敗：機器人必須先校準 (cal)！");
         return;
     }
 
-    // 步驟 2 & 3: 模式管理 - 如果不是串級模式，則執行安全切換
-    if (mode != ControlMode::CASCADE_CONTROL) {
-        Serial.println("非串級模式，正在執行安全切換至 CASCADE_CONTROL...");
-        
-        // 步驟 3.1: 凍結 - 將所有目標位置刷新為當前實際位置，防止亂動
-        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            target_positions_rad[i] = getMotorPosition_rad(i);
-        }
-        
-        // 步驟 3.2: 切換 - 設定新模式
-        mode = ControlMode::CASCADE_CONTROL;
-        // 步驟 3.3: 重置 - 清除舊的積分誤差
-        integral_error_vel.fill(0.0f);
-        Serial.println("模式切換完成，已凍結所有關節。");
-    }
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
 
-    // 步驟 4: 確定目標 - 根據組別確定起始索引
     int start_index = -1;
     const char* group_name = "UNKNOWN";
     switch(group) {
-        case JointGroup::HIP:
-            start_index = 0; // 馬達ID 0, 3, 6, 9
-            group_name = "HIP";
-            break;
-        case JointGroup::UPPER:
-            start_index = 1; // 馬達ID 1, 4, 7, 10
-            group_name = "UPPER";
-            break;
-        case JointGroup::LOWER:
-            start_index = 2; // 馬達ID 2, 5, 8, 11
-            group_name = "LOWER";
-            break;
+        case JointGroup::HIP:   start_index = 0; group_name = "HIP";   break;
+        case JointGroup::UPPER: start_index = 1; group_name = "UPPER"; break;
+        case JointGroup::LOWER: start_index = 2; group_name = "LOWER"; break;
+        default:
+             Serial.println("[錯誤] 此函式僅適用於 HIP/UPPER/LOWER 組。");
+             return;
     }
     
     Serial.printf("--> [Cascade] 正在設定關節組: %s, 目標角度: %.4f rad\n", group_name, angle_rad);
 
-    // 步驟 5: 更新目標 - 遍歷並更新屬於該組的馬達的目標位置
     if (start_index != -1) {
         for (int i = start_index; i < NUM_ROBOT_MOTORS; i += 3) {
             target_positions_rad[i] = angle_rad;
         }
-    } else {
-        Serial.println("[錯誤] 無效的關節組別。");
     }
 }
 
+// 實現新的 setLegJointsCascade (C. 簡化模式切換邏輯)
+void RobotController::setLegJointsCascade(int leg_id, float hip_rad, float upper_rad, float lower_rad) {
+    if (leg_id < 0 || leg_id > 3) {
+        Serial.println("[錯誤] 無效的腿部 ID。請使用 0-3。");
+        return;
+    }
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 腿部控制失敗：機器人必須先校準！");
+        return;
+    }
+
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
+    
+    int base_motor_id = leg_id * 3;
+    target_positions_rad[base_motor_id + 0] = hip_rad;
+    target_positions_rad[base_motor_id + 1] = upper_rad;
+    target_positions_rad[base_motor_id + 2] = lower_rad;
+    
+    Serial.printf("--> [Cascade] 設定腿 %d 關節角度為 (H:%.2f, U:%.2f, L:%.2f) rad。\n", 
+                  leg_id, hip_rad, upper_rad, lower_rad);
+}
+
+
+// 實現新的 setLegPairCascade (C. 簡化模式切換邏輯)
+void RobotController::setLegPairCascade(JointGroup group, float hip_rad, float upper_rad, float lower_rad) {
+    if (group != JointGroup::LEG_FRONT && group != JointGroup::LEG_REAR) {
+        Serial.println("[錯誤] 此函式僅適用於 LEG_FRONT 或 LEG_REAR。");
+        return;
+    }
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 腿部控制失敗：機器人必須先校準！");
+        return;
+    }
+
+    // 呼叫新的輔助函式來處理模式切換
+    ensureCascadeMode();
+
+    const char* group_name = (group == JointGroup::LEG_FRONT) ? "前腿對" : "後腿對";
+    Serial.printf("--> [Cascade] 設定 %s 角度為 (H:%.2f, U:%.2f, L:%.2f) rad (右腿為基準)。\n", 
+                  group_name, hip_rad, upper_rad, lower_rad);
+
+    if (group == JointGroup::LEG_FRONT) {
+        target_positions_rad[0] = hip_rad;    target_positions_rad[1] = upper_rad;   target_positions_rad[2] = lower_rad;
+        target_positions_rad[3] = hip_rad;    target_positions_rad[4] = upper_rad;   target_positions_rad[5] = lower_rad;
+    } else { // LEG_REAR
+        target_positions_rad[6] = hip_rad;    target_positions_rad[7] = upper_rad;   target_positions_rad[8] = lower_rad;
+        target_positions_rad[9] = hip_rad;    target_positions_rad[10] = upper_rad;  target_positions_rad[11] = lower_rad;
+    }
+}
+
+// 相對運動函式
+void RobotController::moveMotorRelative_rad(int motorID, float delta_rad) {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) {
+        Serial.println("[錯誤] 無效的馬達 ID。");
+        return;
+    }
+    if (!isCalibrated()) {
+        Serial.println("[錯誤] 相對運動失敗：機器人必須先校準！");
+        return;
+    }
+
+    // 呼叫輔助函式來確保處於正確模式
+    ensureCascadeMode();
+    
+    // 在當前目標位置的基礎上進行增減
+    target_positions_rad[motorID] += delta_rad;
+    
+    Serial.printf("  [Cascade] 馬達 %d 相對移動 %.4f rad, 新目標: %.4f rad。\n", 
+                  motorID, delta_rad, target_positions_rad[motorID]);
+}
+
+
+
+// =================================================================
+//   參數管理後端 (Parameter Management Backend)
+// =================================================================
+RobotController::ParamMask getMaskFromName(const std::string& param_name) {
+    auto it = param_name_to_mask.find(param_name);
+    if (it != param_name_to_mask.end()) {
+        return it->second;
+    }
+    return RobotController::ParamMask::MASK_NONE;
+}
+
+void RobotController::setParamOverride(ParamScope scope, int target_id, const std::string& param_name, float value) {
+    ParamMask mask_to_set = getMaskFromName(param_name);
+    if (mask_to_set == MASK_NONE) return; // 無效的參數名
+
+    // 根據作用域選擇要修改的對象
+    if (scope == ParamScope::GLOBAL) {
+        _global_override_mask |= mask_to_set; // 設置對應的旗標位
+        if (mask_to_set & MASK_C)       _global_params.c = value;
+        if (mask_to_set & MASK_VEL_KP)  _global_params.vel_kp = value;
+        if (mask_to_set & MASK_VEL_KI)  _global_params.vel_ki = value;
+        if (mask_to_set & MASK_MAX_VEL) _global_params.max_target_velocity_rad_s = value;
+        if (mask_to_set & MASK_MAX_ERR) _global_params.integral_max_error_rad = value;
+    } else if (scope == ParamScope::MOTOR) {
+        if (target_id < 0 || target_id >= NUM_ROBOT_MOTORS) return;
+        _motor_overrides[target_id].override_mask |= mask_to_set; // 設置旗標
+        if (mask_to_set & MASK_C)       _motor_overrides[target_id].values.c = value;
+        if (mask_to_set & MASK_VEL_KP)  _motor_overrides[target_id].values.vel_kp = value;
+        if (mask_to_set & MASK_VEL_KI)  _motor_overrides[target_id].values.vel_ki = value;
+        if (mask_to_set & MASK_MAX_VEL) _motor_overrides[target_id].values.max_target_velocity_rad_s = value;
+        if (mask_to_set & MASK_MAX_ERR) _motor_overrides[target_id].values.integral_max_error_rad = value;
+    }
+}
+
+void RobotController::resetParamOverride(ParamScope scope, int target_id, const std::string& param_name) {
+    // 如果 param_name 為空，代表重置所有參數
+    ParamMask mask_to_clear = param_name.empty() ? MASK_ALL : getMaskFromName(param_name);
+    if (mask_to_clear == MASK_NONE) return;
+
+    if (scope == ParamScope::GLOBAL) {
+        _global_override_mask &= ~mask_to_clear; // 清除對應的旗標位
+    } else if (scope == ParamScope::MOTOR) {
+        if (target_id < 0 || target_id >= NUM_ROBOT_MOTORS) return;
+        _motor_overrides[target_id].override_mask &= ~mask_to_clear;
+    }
+}
 
 
 // =================================================================
@@ -345,6 +465,82 @@ const char* RobotController::getModeString() {
 bool RobotController::isCalibrated() { /* ... 內容不變 ... */ for(bool h : is_joint_calibrated) if(!h) return false; return true; }
 float RobotController::getMotorPosition_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getPosition_rad(motorID) * direction_multipliers[motorID]; }
 float RobotController::getMotorVelocity_rad(int motorID) { /* ... 內容不變 ... */ if(motorID<0||motorID>=NUM_ROBOT_MOTORS)return 0; return motors->getRawVelocity_rad(motorID) * direction_multipliers[motorID]; }
+
+// <<< ADDED: 新的 getEffectiveParams 函式實作 >>>
+CascadeParams RobotController::getEffectiveParams(int motorID) const {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return {0};
+    
+    // 1. 從系統預設開始
+    CascadeParams effective_params = SYSTEM_DEFAULT_PARAMS;
+
+    // 2. 應用全域覆蓋
+    if (_global_override_mask & MASK_C)       effective_params.c = _global_params.c;
+    if (_global_override_mask & MASK_VEL_KP)  effective_params.vel_kp = _global_params.vel_kp;
+    if (_global_override_mask & MASK_VEL_KI)  effective_params.vel_ki = _global_params.vel_ki;
+    if (_global_override_mask & MASK_MAX_VEL) effective_params.max_target_velocity_rad_s = _global_params.max_target_velocity_rad_s;
+    if (_global_override_mask & MASK_MAX_ERR) effective_params.integral_max_error_rad = _global_params.integral_max_error_rad;
+
+    // 3. 應用個別馬達覆蓋
+    const auto& motor_override = _motor_overrides[motorID];
+    if (motor_override.override_mask & MASK_C)       effective_params.c = motor_override.values.c;
+    if (motor_override.override_mask & MASK_VEL_KP)  effective_params.vel_kp = motor_override.values.vel_kp;
+    if (motor_override.override_mask & MASK_VEL_KI)  effective_params.vel_ki = motor_override.values.vel_ki;
+    if (motor_override.override_mask & MASK_MAX_VEL) effective_params.max_target_velocity_rad_s = motor_override.values.max_target_velocity_rad_s;
+    if (motor_override.override_mask & MASK_MAX_ERR) effective_params.integral_max_error_rad = motor_override.values.integral_max_error_rad;
+
+    return effective_params;
+}
+
+// <<< ADDED: 新增 getParamSourceInfo 函式 >>>
+ParamSourceInfo RobotController::getParamSourceInfo(int motorID) const {
+    if (motorID < 0 || motorID >= NUM_ROBOT_MOTORS) return {};
+
+    ParamSourceInfo info;
+    const auto& motor_override = _motor_overrides[motorID];
+
+    info.c_source       = (motor_override.override_mask & MASK_C) ? "Motor" : ((_global_override_mask & MASK_C) ? "Global" : "Default");
+    info.vel_kp_source  = (motor_override.override_mask & MASK_VEL_KP) ? "Motor" : ((_global_override_mask & MASK_VEL_KP) ? "Global" : "Default");
+    info.vel_ki_source  = (motor_override.override_mask & MASK_VEL_KI) ? "Motor" : ((_global_override_mask & MASK_VEL_KI) ? "Global" : "Default");
+    info.max_vel_source = (motor_override.override_mask & MASK_MAX_VEL) ? "Motor" : ((_global_override_mask & MASK_MAX_VEL) ? "Global" : "Default");
+    info.max_err_source = (motor_override.override_mask & MASK_MAX_ERR) ? "Motor" : ((_global_override_mask & MASK_MAX_ERR) ? "Global" : "Default");
+
+    return info;
+}
+
+// <<< ADDED: 新增 getMotorIdsForGroup 函式 >>>
+std::vector<int> RobotController::getMotorIdsForGroup(const std::string& group_name_short) {
+    if (group_name_short == "h") return {0, 3, 6, 9};
+    if (group_name_short == "u") return {1, 4, 7, 10};
+    if (group_name_short == "l") return {2, 5, 8, 11};
+    if (group_name_short == "l0") return {0, 1, 2};
+    if (group_name_short == "l1") return {3, 4, 5};
+    if (group_name_short == "l2") return {6, 7, 8};
+    if (group_name_short == "l3") return {9, 10, 11};
+    if (group_name_short == "f") return {0, 1, 2, 3, 4, 5};
+    if (group_name_short == "r") return {6, 7, 8, 9, 10, 11};
+    return {}; // 返回空向量如果組名無效
+}
+
+// 實現新的私有輔助函式
+void RobotController::ensureCascadeMode() {
+    // 檢查當前模式是否為 CASCADE_CONTROL
+    if (mode != ControlMode::CASCADE_CONTROL) {
+        Serial.println("非串級模式，正在執行安全切換至 CASCADE_CONTROL...");
+        
+        // 步驟 1: 凍結 - 將所有目標位置刷新為當前實際位置，防止亂動
+        for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+            target_positions_rad[i] = getMotorPosition_rad(i);
+        }
+        
+        // 步驟 2: 切換 - 設定新模式
+        mode = ControlMode::CASCADE_CONTROL;
+        
+        // 步驟 3: 重置 - 清除舊的積分誤差，以一個乾淨的狀態開始
+        integral_error_vel.fill(0.0f);
+        
+        Serial.println("模式切換完成，已凍結所有關節。");
+    }
+}
 
 
 
@@ -433,56 +629,64 @@ void RobotController::updateWiggleTest() {
     sendCurrents(_target_currents_mA.data(), true);
 }
 
-// **** NEW **** - 級聯控制的完整更新邏輯
+// 級聯控制的完整更新邏輯
 void RobotController::updateCascadeControl() {
     const float dt = 1.0f / CONTROL_FREQUENCY_HZ_H;
 
     for (int i = 0; i < NUM_ROBOT_MOTORS; i++) {
+        const CascadeParams params = getEffectiveParams(i); //在迴圈開始時，獲取該馬達當前生效的參數
         // --- 數據採集 ---
         float current_pos = getMotorPosition_rad(i);
         float current_vel = getMotorVelocity_rad(i);
 
-        // --- 安全檢查 ---
-        if (abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
+        // --- 安全檢查 (與位置控制共用相同的安全限制) ---
+        if (std::abs(current_vel) > POS_CONTROL_MAX_VELOCITY_RAD_S) {
             Serial.printf("!!! 安全停機 !!! 馬達 %d 速度 %.2f 超出限制 %.2f rad/s。\n", i, current_vel, POS_CONTROL_MAX_VELOCITY_RAD_S);
             setIdle(); return;
         }
         float pos_error = target_positions_rad[i] - current_pos;
-        if (abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
+        if (std::abs(pos_error) > POS_CONTROL_MAX_ERROR_RAD) {
             Serial.printf("!!! 安全停機 !!! 馬達 %d 位置誤差 %.2f 超出限制 %.2f rad。\n", i, pos_error, POS_CONTROL_MAX_ERROR_RAD);
             setIdle(); return;
         }
 
         // --- 外環: 位置控制器 (P-Controller) ---
-        // 計算目標速度，位置誤差越大，期望的修正速度就越快
-        float target_vel = CASCADE_POS_KP * pos_error;
-        target_vel = constrain(target_vel, -CASCADE_MAX_TARGET_VELOCITY_RAD_S, CASCADE_MAX_TARGET_VELOCITY_RAD_S);
+        // 計算目標速度，使用每個馬達獨立的 'c' 參數
+        float target_vel = pos_error * params.c;
+
+        // 限制目標速度，使用每個馬達獨立的限速參數
+        target_vel = std::max(-params.max_target_velocity_rad_s, 
+                              std::min(params.max_target_velocity_rad_s, target_vel));
 
         // --- 內環: 速度控制器 (PI-Controller) ---
         float vel_error = target_vel - current_vel;
 
-        // 積分項累加
-        integral_error_vel[i] += vel_error * dt;
-        // 積分抗飽和 (Anti-Windup)
-        integral_error_vel[i] = constrain(integral_error_vel[i], -CASCADE_INTEGRAL_MAX_ERROR_RAD, CASCADE_INTEGRAL_MAX_ERROR_RAD);
+        // 積分項累加，帶條件性抗飽和 (Anti-Windup)
+        // 只有當位置誤差在允許範圍內時，才累加積分項
+        if (std::abs(pos_error) < params.integral_max_error_rad) {
+             integral_error_vel[i] += vel_error * dt;
+        } else {
+             integral_error_vel[i] = 0.0f;
+        }
 
-        // PI 計算
-        float p_term = CASCADE_VEL_KP * vel_error;
-        float i_term = CASCADE_VEL_KI * integral_error_vel[i];
+        // PI 計算，使用每個馬達獨立的 'vel_kp' 和 'vel_ki'
+        float p_term = params.vel_kp * vel_error;
+        float i_term = params.vel_ki * integral_error_vel[i];
 
         // 總回饋電流
         float feedback_current = p_term + i_term;
         
         // --- 摩擦力補償 (同樣適用於級聯控制) ---
         float friction_comp_current = 0;
-        if (abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
+        if (std::abs(current_vel) < FRICTION_VEL_THRESHOLD_RAD_S && std::abs(pos_error) > FRICTION_ERR_THRESHOLD_RAD) {
             friction_comp_current = copysignf(FRICTION_STATIC_COMP_mA, feedback_current);
         } else {
             friction_comp_current = copysignf(FRICTION_KINETIC_COMP_mA, current_vel);
         }
 
-        _target_currents_mA[i] = (int16_t)(feedback_current + friction_comp_current);
+        _target_currents_mA[i] = static_cast<int16_t>(feedback_current + friction_comp_current);
 
+        // 保存除錯資訊
         _target_vel_rad_s[i] = target_vel;
         _vel_error_rad_s[i] = vel_error;
     }
@@ -499,7 +703,7 @@ CascadeDebugInfo RobotController::getCascadeDebugInfo(int motorID) {
     info.pos_error_rad     = info.target_pos_rad - info.current_pos_rad;
     info.target_vel_rad_s  = _target_vel_rad_s[motorID];
     info.current_vel_rad_s = getMotorVelocity_rad(motorID);
-    info.vel_error_rad_s   = _vel_error_rad_s[motorID];
+    info.vel_error_rad_s   = info.target_vel_rad_s - info.current_vel_rad_s; // Corrected this line
     info.target_current_mA = _target_currents_mA[motorID];
     return info;
 }
