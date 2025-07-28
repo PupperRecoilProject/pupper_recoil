@@ -9,7 +9,7 @@ TelemetrySystem::TelemetrySystem(RobotController* robot, SimpleAHRS* ahrs, Motor
     : _robot(robot), 
       _ahrs(ahrs), 
       _motors(motors),
-      _imu(imu), // <<< 新增：初始化新增的 _imu 指標
+      _imu(imu), // 初始化新增的 _imu 指標
       _current_mode(PrintMode::HUMAN_STATUS), // 預設為人類可讀模式
       _focus_motor_id(-1),                    // 預設無焦點馬達
       _csv_header_printed(false),             // CSV標頭尚未打印
@@ -23,7 +23,7 @@ void TelemetrySystem::begin() {
 }
 
 
-// --- 新增：暫停/恢復/設定指令 的函式實現 ---
+// --- 暫停/恢復/設定指令 的函式實現 ---
 void TelemetrySystem::pause() {
     if (!_is_paused) {
         _is_paused = true;
@@ -141,12 +141,33 @@ void TelemetrySystem::collectData() {
         _telemetry_data.imu_acc_g[2] = _imu->accG[2];
     }
 
+    if (_ahrs) { // 防呆，確保指標有效
+        // 填充 AHRS 計算出的線性加速度 (已移除重力)
+        _telemetry_data.ahrs_linear_accel_g[0] = _ahrs->linearAccel[0];
+        _telemetry_data.ahrs_linear_accel_g[1] = _ahrs->linearAccel[1];
+        _telemetry_data.ahrs_linear_accel_g[2] = _ahrs->linearAccel[2];
+        
+        // 填充 AHRS 估算出的線速度
+        _telemetry_data.ahrs_velocity_ms[0] = _ahrs->velocity[0];
+        _telemetry_data.ahrs_velocity_ms[1] = _ahrs->velocity[1];
+        _telemetry_data.ahrs_velocity_ms[2] = _ahrs->velocity[2];
+    }
+
     for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
         _telemetry_data.motor_positions_rad[i] = _robot->getMotorPosition_rad(i);
         _telemetry_data.motor_velocities_rad_s[i] = _robot->getMotorVelocity_rad(i);
         _telemetry_data.target_currents_mA[i] = _robot->getTargetCurrent_mA(i);
         _telemetry_data.actual_currents_mA[i] = _motors->getRawCurrent_mA(i);
+
+        // 填充每個馬達詳細的級聯控制資訊
+        if (_robot) { // 防呆
+             _telemetry_data.cascade_debug_infos[i] = _robot->getCascadeDebugInfo(i);
+        }
+
     }
+
+
+
 }
 
 // 實現人類可讀的全局狀態打印 (會根據焦點自動調整)
@@ -155,7 +176,7 @@ void TelemetrySystem::printAsHumanStatus() {
 
     Serial.println("---------------- 機器人狀態 ----------------");
     
-    snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str()); // --- 修改：在頂部增加 "Last Cmd" 的顯示 ---
+    snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str()); // 在頂部增加 "Last Cmd" 的顯示
     Serial.println(buf);
 
     snprintf(buf, sizeof(buf), "模式: %s | 是否校準: %s | 焦點: %s", 
