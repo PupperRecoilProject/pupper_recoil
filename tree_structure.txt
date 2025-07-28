@@ -1,0 +1,472 @@
+列出磁碟區 Data 的資料夾 PATH
+磁碟區序號為 10AD-079A
+D:.
+|   .gitignore
+|   platformio.ini
+|   README.md
+|   tree_structure.txt
+|   
++---.pio
+|   +---build
+|   |   |   project.checksum
+|   |   |   
+|   |   \---teensy40
+|   \---libdeps
+|       \---teensy40
+|           |   integrity.dat
+|           |   
+|           +---ArduinoJson
+|           |   |   .piopm
+|           |   |   ArduinoJson.h
+|           |   |   library.json
+|           |   |   library.properties
+|           |   |   LICENSE.txt
+|           |   |   README.md
+|           |   |   
+|           |   +---examples
+|           |   |   +---JsonConfigFile
+|           |   |   |       JsonConfigFile.ino
+|           |   |   |       
+|           |   |   +---JsonFilterExample
+|           |   |   |       JsonFilterExample.ino
+|           |   |   |       
+|           |   |   +---JsonGeneratorExample
+|           |   |   |       JsonGeneratorExample.ino
+|           |   |   |       
+|           |   |   +---JsonHttpClient
+|           |   |   |       JsonHttpClient.ino
+|           |   |   |       
+|           |   |   +---JsonParserExample
+|           |   |   |       JsonParserExample.ino
+|           |   |   |       
+|           |   |   +---JsonServer
+|           |   |   |       JsonServer.ino
+|           |   |   |       
+|           |   |   +---JsonUdpBeacon
+|           |   |   |       JsonUdpBeacon.ino
+|           |   |   |       
+|           |   |   +---MsgPackParser
+|           |   |   |       MsgPackParser.ino
+|           |   |   |       
+|           |   |   +---ProgmemExample
+|           |   |   |       ProgmemExample.ino
+|           |   |   |       
+|           |   |   \---StringExample
+|           |   |           StringExample.ino
+|           |   |           
+|           |   \---src
+|           |       |   ArduinoJson.h
+|           |       |   ArduinoJson.hpp
+|           |       |   CMakeLists.txt
+|           |       |   
+|           |       \---ArduinoJson
+|           |           |   compatibility.hpp
+|           |           |   Configuration.hpp
+|           |           |   Namespace.hpp
+|           |           |   version.hpp
+|           |           |   
+|           |           +---Array
+|           |           |       ArrayData.hpp
+|           |           |       ArrayImpl.hpp
+|           |           |       ElementProxy.hpp
+|           |           |       JsonArray.hpp
+|           |           |       JsonArrayConst.hpp
+|           |           |       JsonArrayIterator.hpp
+|           |           |       Utilities.hpp
+|           |           |       
+|           |           +---Collection
+|           |           |       CollectionData.hpp
+|           |           |       CollectionImpl.hpp
+|           |           |       
+|           |           +---Deserialization
+|           |           |   |   DeserializationError.hpp
+|           |           |   |   DeserializationOptions.hpp
+|           |           |   |   deserialize.hpp
+|           |           |   |   Filter.hpp
+|           |           |   |   NestingLimit.hpp
+|           |           |   |   Reader.hpp
+|           |           |   |   
+|           |           |   \---Readers
+|           |           |           ArduinoStreamReader.hpp
+|           |           |           ArduinoStringReader.hpp
+|           |           |           FlashReader.hpp
+|           |           |           IteratorReader.hpp
+|           |           |           RamReader.hpp
+|           |           |           StdStreamReader.hpp
+|           |           |           VariantReader.hpp
+|           |           |           
+|           |           +---Document
+|           |           |       JsonDocument.hpp
+|           |           |       
+|           |           +---Json
+|           |           |       EscapeSequence.hpp
+|           |           |       JsonDeserializer.hpp
+|           |           |       JsonSerializer.hpp
+|           |           |       Latch.hpp
+|           |           |       PrettyJsonSerializer.hpp
+|           |           |       TextFormatter.hpp
+|           |           |       Utf16.hpp
+|           |           |       Utf8.hpp
+|           |           |       
+|           |           +---Memory
+|           |           |       Alignment.hpp
+|           |           |       Allocator.hpp
+|           |           |       MemoryPool.hpp
+|           |           |       MemoryPoolList.hpp
+|           |           |       ResourceManager.hpp
+|           |           |       ResourceManagerImpl.hpp
+|           |           |       StringBuffer.hpp
+|           |           |       StringBuilder.hpp
+|           |           |       StringNode.hpp
+|           |           |       StringPool.hpp
+|           |           |       
+|           |           +---Misc
+|           |           |       SerializedValue.hpp
+|           |           |       
+|           |           +---MsgPack
+|           |           |       endianness.hpp
+|           |           |       ieee754.hpp
+|           |           |       MsgPackBinary.hpp
+|           |           |       MsgPackDeserializer.hpp
+|           |           |       MsgPackExtension.hpp
+|           |           |       MsgPackSerializer.hpp
+|           |           |       
+|           |           +---Numbers
+|           |           |       arithmeticCompare.hpp
+|           |           |       convertNumber.hpp
+|           |           |       FloatParts.hpp
+|           |           |       FloatTraits.hpp
+|           |           |       JsonFloat.hpp
+|           |           |       JsonInteger.hpp
+|           |           |       parseNumber.hpp
+|           |           |       
+|           |           +---Object
+|           |           |       JsonObject.hpp
+|           |           |       JsonObjectConst.hpp
+|           |           |       JsonObjectIterator.hpp
+|           |           |       JsonPair.hpp
+|           |           |       MemberProxy.hpp
+|           |           |       ObjectData.hpp
+|           |           |       ObjectImpl.hpp
+|           |           |       
+|           |           +---Polyfills
+|           |           |   |   alias_cast.hpp
+|           |           |   |   assert.hpp
+|           |           |   |   attributes.hpp
+|           |           |   |   ctype.hpp
+|           |           |   |   integer.hpp
+|           |           |   |   limits.hpp
+|           |           |   |   math.hpp
+|           |           |   |   pgmspace.hpp
+|           |           |   |   pgmspace_generic.hpp
+|           |           |   |   preprocessor.hpp
+|           |           |   |   type_traits.hpp
+|           |           |   |   utility.hpp
+|           |           |   |   
+|           |           |   +---mpl
+|           |           |   |       max.hpp
+|           |           |   |       
+|           |           |   \---type_traits
+|           |           |           conditional.hpp
+|           |           |           decay.hpp
+|           |           |           declval.hpp
+|           |           |           enable_if.hpp
+|           |           |           function_traits.hpp
+|           |           |           integral_constant.hpp
+|           |           |           is_array.hpp
+|           |           |           is_base_of.hpp
+|           |           |           is_class.hpp
+|           |           |           is_const.hpp
+|           |           |           is_convertible.hpp
+|           |           |           is_enum.hpp
+|           |           |           is_floating_point.hpp
+|           |           |           is_integral.hpp
+|           |           |           is_pointer.hpp
+|           |           |           is_same.hpp
+|           |           |           is_signed.hpp
+|           |           |           is_unsigned.hpp
+|           |           |           make_unsigned.hpp
+|           |           |           remove_const.hpp
+|           |           |           remove_cv.hpp
+|           |           |           remove_reference.hpp
+|           |           |           type_identity.hpp
+|           |           |           void_t.hpp
+|           |           |           
+|           |           +---Serialization
+|           |           |   |   CountingDecorator.hpp
+|           |           |   |   measure.hpp
+|           |           |   |   serialize.hpp
+|           |           |   |   Writer.hpp
+|           |           |   |   
+|           |           |   \---Writers
+|           |           |           ArduinoStringWriter.hpp
+|           |           |           DummyWriter.hpp
+|           |           |           PrintWriter.hpp
+|           |           |           StaticStringWriter.hpp
+|           |           |           StdStreamWriter.hpp
+|           |           |           StdStringWriter.hpp
+|           |           |           
+|           |           +---Strings
+|           |           |   |   IsString.hpp
+|           |           |   |   JsonString.hpp
+|           |           |   |   StringAdapter.hpp
+|           |           |   |   StringAdapters.hpp
+|           |           |   |   StringTraits.hpp
+|           |           |   |   
+|           |           |   \---Adapters
+|           |           |           FlashString.hpp
+|           |           |           RamString.hpp
+|           |           |           StringObject.hpp
+|           |           |           
+|           |           \---Variant
+|           |                   Converter.hpp
+|           |                   ConverterImpl.hpp
+|           |                   JsonVariant.hpp
+|           |                   JsonVariantConst.hpp
+|           |                   JsonVariantCopier.hpp
+|           |                   JsonVariantVisitor.hpp
+|           |                   VariantAttorney.hpp
+|           |                   VariantCompare.hpp
+|           |                   VariantContent.hpp
+|           |                   VariantData.hpp
+|           |                   VariantDataVisitor.hpp
+|           |                   VariantImpl.hpp
+|           |                   VariantOperators.hpp
+|           |                   VariantRefBase.hpp
+|           |                   VariantRefBaseImpl.hpp
+|           |                   VariantTag.hpp
+|           |                   VariantTo.hpp
+|           |                   
+|           +---BasicLinearAlgebra
+|           |   |   .clang-format
+|           |   |   .gitignore
+|           |   |   .piopm
+|           |   |   BasicLinearAlgebra.h
+|           |   |   ElementStorage.h
+|           |   |   keywords.txt
+|           |   |   library.properties
+|           |   |   LICENSE
+|           |   |   README.md
+|           |   |   
+|           |   +---.github
+|           |   |   \---workflows
+|           |   |           run_tests.yml
+|           |   |           
+|           |   +---examples
+|           |   |   +---CustomMatrix
+|           |   |   |       CustomMatrix.ino
+|           |   |   |       
+|           |   |   +---HowToUse
+|           |   |   |       HowToUse.ino
+|           |   |   |       
+|           |   |   +---References
+|           |   |   |       References.ino
+|           |   |   |       
+|           |   |   +---SolveLinearEquations
+|           |   |   |       SolveLinearEquations.ino
+|           |   |   |       
+|           |   |   \---Tensor
+|           |   |           Tensor.ino
+|           |   |           
+|           |   \---impl
+|           |           BasicLinearAlgebra.h
+|           |           NotSoBasicLinearAlgebra.h
+|           |           Types.h
+|           |           
+|           +---Nanopb
+|           |   |   .piopm
+|           |   |   library.json
+|           |   |   pb.h
+|           |   |   pb_common.c
+|           |   |   pb_common.h
+|           |   |   pb_decode.c
+|           |   |   pb_decode.h
+|           |   |   pb_encode.c
+|           |   |   pb_encode.h
+|           |   |   README.md
+|           |   |   
+|           |   +---examples
+|           |   |   +---cmake_relpath
+|           |   |   |   |   CMakeLists.txt
+|           |   |   |   |   README.txt
+|           |   |   |   |   simple.c
+|           |   |   |   |   
+|           |   |   |   \---proto
+|           |   |   |       |   simple.proto
+|           |   |   |       |   
+|           |   |   |       \---sub
+|           |   |   |               unlucky.proto
+|           |   |   |               
+|           |   |   +---cmake_simple
+|           |   |   |       CMakeLists.txt
+|           |   |   |       README.txt
+|           |   |   |       simple.c
+|           |   |   |       simple.proto
+|           |   |   |       
+|           |   |   +---conan_dependency
+|           |   |   |   |   .gitignore
+|           |   |   |   |   CMakeLists.txt
+|           |   |   |   |   conanfile.py
+|           |   |   |   |   README.md
+|           |   |   |   |   
+|           |   |   |   +---protos
+|           |   |   |   |       simple.proto
+|           |   |   |   |       
+|           |   |   |   \---src
+|           |   |   |           simple.c
+|           |   |   |           
+|           |   |   +---network_server
+|           |   |   |       client.c
+|           |   |   |       common.c
+|           |   |   |       common.h
+|           |   |   |       fileproto.options
+|           |   |   |       fileproto.proto
+|           |   |   |       Makefile
+|           |   |   |       README.txt
+|           |   |   |       server.c
+|           |   |   |       
+|           |   |   +---platformio
+|           |   |   |   |   platformio.ini
+|           |   |   |   |   
+|           |   |   |   +---proto
+|           |   |   |   |       pio_without_options.proto
+|           |   |   |   |       pio_with_options.options
+|           |   |   |   |       pio_with_options.proto
+|           |   |   |   |       
+|           |   |   |   \---src
+|           |   |   |           CMakeLists.txt
+|           |   |   |           pio_esp32_idf.c
+|           |   |   |           pio_without_options.c
+|           |   |   |           pio_with_options.c
+|           |   |   |           test.h
+|           |   |   |           
+|           |   |   +---simple
+|           |   |   |       Makefile
+|           |   |   |       README.txt
+|           |   |   |       simple.c
+|           |   |   |       simple.proto
+|           |   |   |       
+|           |   |   \---using_union_messages
+|           |   |           decode.c
+|           |   |           encode.c
+|           |   |           Makefile
+|           |   |           README.txt
+|           |   |           unionproto.proto
+|           |   |           
+|           |   \---generator
+|           |       |   nanopb_generator
+|           |       |   nanopb_generator.bat
+|           |       |   nanopb_generator.py
+|           |       |   nanopb_generator.py2
+|           |       |   platformio_generator.py
+|           |       |   protoc
+|           |       |   protoc-gen-nanopb
+|           |       |   protoc-gen-nanopb-py2
+|           |       |   protoc-gen-nanopb.bat
+|           |       |   protoc.bat
+|           |       |   __init__.py
+|           |       |   
+|           |       \---proto
+|           |           |   Makefile
+|           |           |   nanopb.proto
+|           |           |   _utils.py
+|           |           |   __init__.py
+|           |           |   
+|           |           \---google
+|           |               \---protobuf
+|           |                       descriptor.proto
+|           |                       
+|           \---SparkFun Qwiic 6Dof - LSM6DSO
+|               |   .gitignore
+|               |   .piopm
+|               |   keywords.txt
+|               |   library.properties
+|               |   LICENSE.md
+|               |   README.md
+|               |   
+|               +---.github
+|               |   \---workflows
+|               |           add_issue_to_project.yml
+|               |           
+|               +---examples
+|               |   +---Basic_Readings
+|               |   |       Basic_Readings.ino
+|               |   |       
+|               |   +---Fifo_Example
+|               |   |       Fifo_Example.ino
+|               |   |       
+|               |   +---Hardware_Interrupts
+|               |   |       Hardware_Interrupts.ino
+|               |   |       
+|               |   \---Software_Interrupts
+|               |           Software_Interrupts.ino
+|               |           
+|               \---src
+|                       README.md
+|                       SparkFunLSM6DSO.cpp
+|                       SparkFunLSM6DSO.h
+|                       
++---.vscode
+|       c_cpp_properties.json
+|       extensions.json
+|       launch.json
+|       settings.json
+|       
++---images
+|       robot-image.jpg
+|       
++---include
+|       AHRS.h
+|       CommandHandler.h
+|       LSM6DSO_SPI.h
+|       MotorController.h
+|       README
+|       RobotController.h
+|       TelemetrySystem.h
+|       
++---lib
+|   |   README
+|   |   
+|   +---DJIC610Controller
+|   |       .gitmodules
+|   |       C610.cpp
+|   |       C610.h
+|   |       C610Bus.h
+|   |       C610Bus.tpp
+|   |       circular_buffer.h
+|   |       FlexCAN_T4.h
+|   |       FlexCAN_T4.tpp
+|   |       imxrt_flexcan.h
+|   |       LICENSE
+|   |       README.md
+|   |       
+|   \---MahonyAHRS
+|       |   keywords.txt
+|       |   library.properties
+|       |   
+|       +---examples
+|       |   +---CurieIMU
+|       |   |       CurieIMU.ino
+|       |   |       
+|       |   \---PropShield
+|       |           PropShield.ino
+|       |           
+|       \---src
+|               MahonyAHRS.cpp
+|               MahonyAHRS.h
+|               
++---proto
+|       pupper_telemetry.proto
+|       
++---src
+|       AHRS.cpp
+|       CommandHandler.cpp
+|       homing_main.cpp
+|       LSM6DSO_SPI.cpp
+|       MotorController.cpp
+|       RobotController.cpp
+|       TelemetrySystem.cpp
+|       
+\---test
+        README
+        

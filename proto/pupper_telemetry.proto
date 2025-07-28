@@ -1,0 +1,79 @@
+// proto/pupper_telemetry.proto
+
+syntax = "proto3";
+
+// Pupper 感測器數據包，從 Teensy 發送到上位機。
+// 這是 AI 軌道的數據核心。
+message SensorData {
+  // --------------------------------------------------
+  // --- 核心觀測數據 (Core Observation Data) ---
+  // 這些欄位直接對應 ONNX 模型的輸入維度。
+  // --------------------------------------------------
+
+  // 1. 陀螺儀 (Gyroscope)
+  // 單位：rad/s
+  // 維度：3 [x, y, z]
+  repeated float gyro = 1;
+
+  // 2. 重力向量 (Gravity Vector)
+  // 描述在機器人身體座標系下的重力方向。
+  // 單位：無 (單位向量)
+  // 維度：3 [x, y, z]
+  repeated float gravity_vector = 2;
+
+  // 3. 線性加速度 (Linear Acceleration)
+  // 移除了重力分量的純線性加速度。
+  // 單位：m/s^2
+  // 維度：3 [x, y, z]
+  repeated float linear_acceleration = 3;
+
+  // 4. 俯仰角 (Pitch Angle)
+  // 單位：rad
+  // 維度：1
+  float pitch = 4;
+
+  // 5. 關節角度 (Joint Positions)
+  // 相對於預設站姿 (manual_calibration_pose) 的差值。
+  // 單位：rad
+  // 維度：12
+  repeated float joint_position = 5;
+
+  // 6. 關節角速度 (Joint Velocities)
+  // 單位：rad/s
+  // 維度：12
+  repeated float joint_velocity = 6;
+
+
+  // --------------------------------------------------
+  // --- 擴展除錯數據 (Extended Debugging Data) ---
+  // 這些欄位不由模型直接使用，但對上位機的狀態監控和除錯極有價值。
+  //  благодаря Protobuf，我們可以安全地添加它們，而不會破壞模型解析。
+  // --------------------------------------------------
+
+  // 10. 系統時間戳
+  // 單位：ms
+  uint32 timestamp_ms = 10;
+
+  // 11. 姿態四元數 (Quaternion)
+  // 提供了完整的姿態信息。
+  // 維度：4 [w, x, y, z]
+  repeated float quaternion = 11;
+  
+  // 12. 原始關節角度 (Raw Joint Positions)
+  // 未經與預設站姿作差的原始校準後角度。
+  // 單位：rad
+  // 維度：12
+  repeated float raw_joint_position = 12;
+
+  // 13. 目標電流 (Target Motor Currents)
+  // 級聯控制器計算出的目標電流。
+  // 單位：mA
+  // 維度：12
+  repeated sfixed32 target_current_mA = 13;
+
+  // 14. 實際電流 (Actual Motor Currents)
+  // 從馬達驅動器回傳的實際電流。
+  // 單位：mA
+  // 維度：12
+  repeated sfixed32 actual_current_mA = 14;
+}
