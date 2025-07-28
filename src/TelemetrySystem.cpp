@@ -72,7 +72,7 @@ void TelemetrySystem::setFocusMotor(int motor_id) {
 // 根據當前模式返回對應的描述字串
 const char* TelemetrySystem::getModeString() {
     switch(_current_mode) {
-        case PrintMode::HUMAN_STATUS: return "人類可讀狀態 (Human Status)";
+        case PrintMode::HUMAN_STATUS: return "人類可讀狀態 (Human Status / Context-Aware)";
         case PrintMode::CSV_LOG:      return "CSV 日誌 (CSV Log)";
         case PrintMode::DASHBOARD:    return "儀表板 (Dashboard)";
         default:                      return "未知模式 (Unknown)";
@@ -174,40 +174,63 @@ void TelemetrySystem::collectData() {
 void TelemetrySystem::printAsHumanStatus() {
     char buf[120];
 
+    // --- Part 1: 通用系統狀態 (無論是否有焦點都會顯示) ---
     Serial.println("---------------- 機器人狀態 ----------------");
-    
-    snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str()); // 在頂部增加 "Last Cmd" 的顯示
+    snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str());
     Serial.println(buf);
-
-    snprintf(buf, sizeof(buf), "模式: %s | 是否校準: %s | 焦點: %s", 
+    snprintf(buf, sizeof(buf), "模式: %s | 校準: %s | 焦點: %s", 
              _telemetry_data.robot_mode, 
              _telemetry_data.is_calibrated ? "是" : "否",
              _focus_motor_id == -1 ? "全局" : String(_focus_motor_id).c_str());
     Serial.println(buf);
     
-    Serial.println("--- AHRS 姿態 (度) ---");
-    snprintf(buf, sizeof(buf), "翻滾角: %+7.2f | 俯仰角: %+7.2f | 偏航角: %+7.2f",
+    // --- Part 2: 通用 AHRS 數據 (無論是否有焦點都會顯示) ---
+    Serial.println("--- AHRS 姿態 (度) & 運動估計 ---");
+    snprintf(buf, sizeof(buf), "姿態 (R/P/Y): %+7.2f, %+7.2f, %+7.2f",
              _telemetry_data.roll, _telemetry_data.pitch, _telemetry_data.yaw);
     Serial.println(buf);
-    
-    Serial.println("--- 馬達數據 (位置rad / 速度radps / 目標電流mA / 實際電流mA) ---");
+    // 新增線性加速度和速度的顯示
+    snprintf(buf, sizeof(buf), "線加速度(g) X/Y/Z: %+6.3f, %+6.3f, %+6.3f",
+             _telemetry_data.ahrs_linear_accel_g[0], _telemetry_data.ahrs_linear_accel_g[1], _telemetry_data.ahrs_linear_accel_g[2]);
+    Serial.println(buf);
+    snprintf(buf, sizeof(buf), "線速度 (m/s) X/Y/Z: %+6.3f, %+6.3f, %+6.3f",
+             _telemetry_data.ahrs_velocity_ms[0], _telemetry_data.ahrs_velocity_ms[1], _telemetry_data.ahrs_velocity_ms[2]);
+    Serial.println(buf);
+
+
+    // --- Part 3: 馬達數據 (情境感知) ---
     if (_focus_motor_id != -1) {
-        // 如果有焦點，只打印該馬達的數據
+        // --- 情境 A: 有焦點馬達，顯示該馬達的超級詳細報告 ---
         int i = _focus_motor_id;
-        snprintf(buf, sizeof(buf), "M%02d: %+6.2f, %+6.2f, %5d, %5d",
-                 i, _telemetry_data.motor_positions_rad[i], _telemetry_data.motor_velocities_rad_s[i],
-                 _telemetry_data.target_currents_mA[i], _telemetry_data.actual_currents_mA[i]);
+        const auto& info = _telemetry_data.cascade_debug_infos[i];
+
+        Serial.printf("--- 焦點馬達 %d 詳細數據 ---\n", i);
+        Serial.println("控制環      |    目標值    |    實際值    |     誤差     ");
+        Serial.println("-------------------------------------------------------");
+        snprintf(buf, sizeof(buf), "位置 [rad]  | %+12.4f | %+12.4f | %+12.4f",
+                 info.target_pos_rad, info.current_pos_rad, info.pos_error_rad);
         Serial.println(buf);
+        snprintf(buf, sizeof(buf), "速度 [rad/s]| %+12.4f | %+12.4f | %+12.4f",
+                 info.target_vel_rad_s, info.current_vel_rad_s, info.vel_error_rad_s);
+        Serial.println(buf);
+        snprintf(buf, sizeof(buf), "電流 [mA]   | %-12d | %-12d |",
+                 info.target_current_mA, _telemetry_data.actual_currents_mA[i]);
+        Serial.println(buf);
+
     } else {
-        // 如果沒有焦點，打印所有馬達的數據
+        // --- 情境 B: 無焦點馬達，顯示所有馬達的簡潔概覽 ---
+        Serial.println("--- 馬達數據 (位置rad / 速度rad/s / 目標mA / 實際mA) ---");
         for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
-            snprintf(buf, sizeof(buf), "M%02d: %+6.2f, %+6.2f, %5d, %5d",
-                     i, _telemetry_data.motor_positions_rad[i], _telemetry_data.motor_velocities_rad_s[i],
-                     _telemetry_data.target_currents_mA[i], _telemetry_data.actual_currents_mA[i]);
+            snprintf(buf, sizeof(buf), "M%02d: %+6.2f, %+7.2f, %5d, %5d",
+                     i, 
+                     _telemetry_data.motor_positions_rad[i], 
+                     _telemetry_data.motor_velocities_rad_s[i],
+                     _telemetry_data.target_currents_mA[i], 
+                     _telemetry_data.actual_currents_mA[i]);
             Serial.println(buf);
         }
     }
-    Serial.println("========================================================\n");
+    Serial.println("=======================================================\n");
 }
 
 // 實現 CSV 格式的日誌打印 (會根據焦點自動調整)
@@ -262,41 +285,36 @@ void TelemetrySystem::printAsCsvLog() {
 
 // 實現單馬達焦點監控的儀表板打印
 void TelemetrySystem::printAsDashboard() {
-    // 儀表板模式必須有焦點馬達
+    // [保留] 此函式目前保持不變。
+    // 雖然它的功能已被整合到新的 human 模式中，但保留它可以向下相容，
+    // 或許未來有其他用途。
     if (_focus_motor_id == -1) {
         Serial.println("[提示] 儀表板模式需要一個焦點馬達。請使用 'focus <id>' 指令設定。");
-        // 為了避免一直刷屏，我們可以將模式臨時切換回 human
         _current_mode = PrintMode::HUMAN_STATUS;
         return;
     }
-
-    // 從 RobotController 獲取該馬達詳細的、級聯控制相關的調試數據
-    CascadeDebugInfo info = _robot->getCascadeDebugInfo(_focus_motor_id);
+    
+    // 從遙測數據中直接獲取資訊，而不是再次呼叫 _robot->getCascadeDebugInfo
+    const auto& info = _telemetry_data.cascade_debug_infos[_focus_motor_id];
 
     char buf[120];
     
-    // 使用 VT100/ANSI 轉義序列來清空終端屏幕並將光標移動到左上角
     Serial.println("--- 單馬達儀表板 ---");
     snprintf(buf, sizeof(buf), "Last Cmd: %s", _last_command.c_str());
     Serial.println(buf);
-    
     snprintf(buf, sizeof(buf), "監控馬達 ID: %d | 機器人模式: %s", _focus_motor_id, _robot->getModeString());
     Serial.println(buf);
-
     Serial.println("-----------------------------------------------------------------");
     Serial.println("控制環      |    目標值    |    實際值    |     誤差     ");
     Serial.println("-----------------------------------------------------------------");
-
     snprintf(buf, sizeof(buf), "位置 [rad]  | %+12.4f | %+12.4f | %+12.4f",
              info.target_pos_rad, info.current_pos_rad, info.pos_error_rad);
     Serial.println(buf);
-
     snprintf(buf, sizeof(buf), "速度 [rad/s]| %+12.4f | %+12.4f | %+12.4f",
              info.target_vel_rad_s, info.current_vel_rad_s, info.vel_error_rad_s);
     Serial.println(buf);
-
     snprintf(buf, sizeof(buf), "電流 [mA]    | %-12d | %-12d |",
-             info.target_current_mA, _motors->getRawCurrent_mA(_focus_motor_id));
+             info.target_current_mA, _telemetry_data.actual_currents_mA[_focus_motor_id]);
     Serial.println(buf);
     Serial.println("-----------------------------------------------------------------");
 }
