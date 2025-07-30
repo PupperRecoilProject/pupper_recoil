@@ -124,6 +124,11 @@ void TelemetrySystem::updateAndPrint() {
         case PrintMode::DASHBOARD:
             printAsDashboard();
             break;
+
+        // 將新模式掛載到主更新流程中
+        case PrintMode::POLICY_STREAM:
+            printAsPolicyStream();
+            break;
     }
 }
 
@@ -331,37 +336,55 @@ void TelemetrySystem::printAsDashboard() {
     Serial.println("-----------------------------------------------------------------");
 }
 
+// 核心實現：為 AI 模型打印嚴格格式的決策輸入流
 void TelemetrySystem::printAsPolicyStream() {
     // 該函式不打印任何標頭或非數字字元。
-    // 嚴格按照AI輸入順序，並進行單位轉換。
+    // 嚴格按照 AI 輸入「契約」順序輸出，並在輸出時進行最終的單位轉換。
+    // 所有數據都來自已填充的 _telemetry_data 結構體，確保數據同步。
+    
+    // ==============================================================
+    // === [數據契約 v1.1] 根據 joystick.py 的 state_obs 更新 ===
+    // ==============================================================
+    // 1. Angular Velocity (3維, rad/s)
+    // 2. Gravity Vector   (3維, g-normalized)
+    // 3. Accelerometer    (3維, m/s^2)
+    // 4. Pitch Angle      (1維, rad)
+    // 5. Joint Positions  (12維, rad)
+    // 6. Joint Velocities (12維, rad/s)
+    // (總維度: 3 + 3 + 3 + 1 + 12 + 12 = 34 維)
+    // ==============================================================
 
-    // 1. 線性速度 (3維, m/s) - 直接來自AHRS
-    Serial.print(_telemetry_data.ahrs_velocity_ms[0], 6); Serial.print(",");
-    Serial.print(_telemetry_data.ahrs_velocity_ms[1], 6); Serial.print(",");
-    Serial.print(_telemetry_data.ahrs_velocity_ms[2], 6); Serial.print(",");
+    // 1. 角速度 (3維, rad/s)
+    // 從 dps 轉換為 rad/s
+    Serial.print(_telemetry_data.imu_gyro_dps[0] * DEG_TO_RAD, 6); Serial.print(",");
+    Serial.print(_telemetry_data.imu_gyro_dps[1] * DEG_TO_RAD, 6); Serial.print(",");
+    Serial.print(_telemetry_data.imu_gyro_dps[2] * DEG_TO_RAD, 6); Serial.print(",");
 
-    // 2. 角速度 (3維, rad/s) - 來自原始IMU數據，並從 dps 轉換為 rad/s
-    //    假設我們已將 imu_gyro_dps 加入 _telemetry_data
-    if (_imu) { // 防呆
-        Serial.print(_imu->gyroDPS[0] * DEG_TO_RAD, 6); Serial.print(",");
-        Serial.print(_imu->gyroDPS[1] * DEG_TO_RAD, 6); Serial.print(",");
-        Serial.print(_imu->gyroDPS[2] * DEG_TO_RAD, 6); Serial.print(",");
-    } else {
-        Serial.print("0.0,0.0,0.0,"); // 備用方案
-    }
+    // 2. 重力向量 (3維, g-normalized)
+    // 直接使用已在 AHRS 中計算好的標準重力向量
+    Serial.print(_telemetry_data.ahrs_gravity_vector[0], 6); Serial.print(",");
+    Serial.print(_telemetry_data.ahrs_gravity_vector[1], 6); Serial.print(",");
+    Serial.print(_telemetry_data.ahrs_gravity_vector[2], 6); Serial.print(",");
 
-    // 3. 重力向量 (3維, g-normalized) - 直接來自AHRS
-    Serial.print(_ahrs->gravityVector[0], 6); Serial.print(",");
-    Serial.print(_ahrs->gravityVector[1], 6); Serial.print(",");
-    Serial.print(_ahrs->gravityVector[2], 6); Serial.print(",");
+    // 3. 加速度計 (3維, m/s^2)
+    // 從 g 轉換為 m/s^2
+    // 注意：這裡使用的是未經座標系修正的原始 IMU 加速度，
+    // 因為 joystick.py 中也是這樣做的 (`self.get_accelerometer(data)`)。
+    Serial.print(_telemetry_data.imu_acc_g[0] * G_ACCEL, 6); Serial.print(",");
+    Serial.print(_telemetry_data.imu_acc_g[1] * G_ACCEL, 6); Serial.print(",");
+    Serial.print(_telemetry_data.imu_acc_g[2] * G_ACCEL, 6); Serial.print(",");
 
-    // 4. 關節位置 (12維, rad)
+    // 4. 俯仰角 (1維, rad)
+    // 從 度 轉換為 rad
+    Serial.print(_telemetry_data.pitch * DEG_TO_RAD, 6); Serial.print(",");
+
+    // 5. 關節位置 (12維, rad)
     for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
         Serial.print(_telemetry_data.motor_positions_rad[i], 6);
         Serial.print(",");
     }
-
-    // 5. 關節速度 (12維, rad/s)
+    
+    // 6. 關節速度 (12維, rad/s)
     for (int i = 0; i < NUM_ROBOT_MOTORS - 1; ++i) {
         Serial.print(_telemetry_data.motor_velocities_rad_s[i], 6);
         Serial.print(",");

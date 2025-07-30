@@ -88,6 +88,7 @@ private:
     void printAsHumanStatus();
     void printAsCsvLog();
     void printAsDashboard();
+    void printAsPolicyStream(); // 打印函式的原型
 
     // --- 指向外部依賴物件的指標 ---
     RobotController* _robot;

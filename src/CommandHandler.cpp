@@ -325,6 +325,7 @@ void CommandHandler::handleSystemCommand(const std::vector<String>& args) {
         if (sub_cmd == "h" || sub_cmd == "human") _telemetry->setPrintMode(TelemetrySystem::PrintMode::HUMAN_STATUS);
         else if (sub_cmd == "c" || sub_cmd == "csv") _telemetry->setPrintMode(TelemetrySystem::PrintMode::CSV_LOG);
         else if (sub_cmd == "d" || sub_cmd == "dashboard") _telemetry->setPrintMode(TelemetrySystem::PrintMode::DASHBOARD);
+        else if (sub_cmd == "p" || sub_cmd == "policy") _telemetry->setPrintMode(TelemetrySystem::PrintMode::POLICY_STREAM);
         // 暫停/恢復
         else if (sub_cmd == "pause") _telemetry->pause();
         else if (sub_cmd == "resume") _telemetry->resume();
