@@ -4,6 +4,9 @@
 #include "LSM6DSO_SPI.h"
 #include <Arduino.h>
 
+const float G_ACCEL = 9.80665f;
+
+
 // 構造函式，使用初始化列表來設定所有成員變數的初始值
 TelemetrySystem::TelemetrySystem(RobotController* robot, SimpleAHRS* ahrs, MotorController* motors, LSM6DSO* imu)
     : _robot(robot), 
@@ -131,18 +134,13 @@ void TelemetrySystem::collectData() {
     _telemetry_data.robot_mode = _robot->getModeString();
     _telemetry_data.is_calibrated = _robot->isCalibrated();
 
+    // 收集姿態數據
     _telemetry_data.roll = _ahrs->roll;
     _telemetry_data.pitch = _ahrs->pitch;
     _telemetry_data.yaw = _ahrs->yaw;
 
-    if (_imu) { // 防呆，確保指標有效
-        _telemetry_data.imu_acc_g[0] = _imu->accG[0];
-        _telemetry_data.imu_acc_g[1] = _imu->accG[1];
-        _telemetry_data.imu_acc_g[2] = _imu->accG[2];
-    }
-
-    if (_ahrs) { // 防呆，確保指標有效
-        // 填充 AHRS 計算出的線性加速度 (已移除重力)
+    // 收集運動學數據
+    if (_ahrs) { // 防呆
         _telemetry_data.ahrs_linear_accel_g[0] = _ahrs->linearAccel[0];
         _telemetry_data.ahrs_linear_accel_g[1] = _ahrs->linearAccel[1];
         _telemetry_data.ahrs_linear_accel_g[2] = _ahrs->linearAccel[2];
@@ -151,8 +149,26 @@ void TelemetrySystem::collectData() {
         _telemetry_data.ahrs_velocity_ms[0] = _ahrs->velocity[0];
         _telemetry_data.ahrs_velocity_ms[1] = _ahrs->velocity[1];
         _telemetry_data.ahrs_velocity_ms[2] = _ahrs->velocity[2];
+
+        // [新增] 收集 AHRS 計算出的重力向量
+        _telemetry_data.ahrs_gravity_vector[0] = _ahrs->gravityVector[0];
+        _telemetry_data.ahrs_gravity_vector[1] = _ahrs->gravityVector[1];
+        _telemetry_data.ahrs_gravity_vector[2] = _ahrs->gravityVector[2];
     }
 
+    // 收集原始 IMU 數據
+    if (_imu) { // 防呆
+        _telemetry_data.imu_acc_g[0] = _imu->accG[0];
+        _telemetry_data.imu_acc_g[1] = _imu->accG[1];
+        _telemetry_data.imu_acc_g[2] = _imu->accG[2];
+
+        // [新增] 收集原始的陀螺儀 dps 數據
+        _telemetry_data.imu_gyro_dps[0] = _imu->gyroDPS[0];
+        _telemetry_data.imu_gyro_dps[1] = _imu->gyroDPS[1];
+        _telemetry_data.imu_gyro_dps[2] = _imu->gyroDPS[2];
+    }
+    
+    // 收集所有馬達的數據
     for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
         _telemetry_data.motor_positions_rad[i] = _robot->getMotorPosition_rad(i);
         _telemetry_data.motor_velocities_rad_s[i] = _robot->getMotorVelocity_rad(i);
@@ -163,11 +179,7 @@ void TelemetrySystem::collectData() {
         if (_robot) { // 防呆
              _telemetry_data.cascade_debug_infos[i] = _robot->getCascadeDebugInfo(i);
         }
-
     }
-
-
-
 }
 
 // 實現人類可讀的全局狀態打印 (會根據焦點自動調整)
@@ -317,4 +329,43 @@ void TelemetrySystem::printAsDashboard() {
              info.target_current_mA, _telemetry_data.actual_currents_mA[_focus_motor_id]);
     Serial.println(buf);
     Serial.println("-----------------------------------------------------------------");
+}
+
+void TelemetrySystem::printAsPolicyStream() {
+    // 該函式不打印任何標頭或非數字字元。
+    // 嚴格按照AI輸入順序，並進行單位轉換。
+
+    // 1. 線性速度 (3維, m/s) - 直接來自AHRS
+    Serial.print(_telemetry_data.ahrs_velocity_ms[0], 6); Serial.print(",");
+    Serial.print(_telemetry_data.ahrs_velocity_ms[1], 6); Serial.print(",");
+    Serial.print(_telemetry_data.ahrs_velocity_ms[2], 6); Serial.print(",");
+
+    // 2. 角速度 (3維, rad/s) - 來自原始IMU數據，並從 dps 轉換為 rad/s
+    //    假設我們已將 imu_gyro_dps 加入 _telemetry_data
+    if (_imu) { // 防呆
+        Serial.print(_imu->gyroDPS[0] * DEG_TO_RAD, 6); Serial.print(",");
+        Serial.print(_imu->gyroDPS[1] * DEG_TO_RAD, 6); Serial.print(",");
+        Serial.print(_imu->gyroDPS[2] * DEG_TO_RAD, 6); Serial.print(",");
+    } else {
+        Serial.print("0.0,0.0,0.0,"); // 備用方案
+    }
+
+    // 3. 重力向量 (3維, g-normalized) - 直接來自AHRS
+    Serial.print(_ahrs->gravityVector[0], 6); Serial.print(",");
+    Serial.print(_ahrs->gravityVector[1], 6); Serial.print(",");
+    Serial.print(_ahrs->gravityVector[2], 6); Serial.print(",");
+
+    // 4. 關節位置 (12維, rad)
+    for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
+        Serial.print(_telemetry_data.motor_positions_rad[i], 6);
+        Serial.print(",");
+    }
+
+    // 5. 關節速度 (12維, rad/s)
+    for (int i = 0; i < NUM_ROBOT_MOTORS - 1; ++i) {
+        Serial.print(_telemetry_data.motor_velocities_rad_s[i], 6);
+        Serial.print(",");
+    }
+    // 最後一筆數據使用 println 來結束一行，作為訊息的終結符
+    Serial.println(_telemetry_data.motor_velocities_rad_s[NUM_ROBOT_MOTORS - 1], 6);
 }

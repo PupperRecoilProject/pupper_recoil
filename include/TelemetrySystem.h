@@ -18,7 +18,9 @@ public:
     enum class PrintMode {
         HUMAN_STATUS,
         CSV_LOG,
-        DASHBOARD
+        DASHBOARD,
+        POLICY_STREAM // 為AI策略設計的數據流模式
+
     };
 
     /**
@@ -64,6 +66,9 @@ private:
         float roll, pitch, yaw;     // AHRS 姿態數據 (度)
         // IMU 加速度數據欄位
         std::array<float, 3> imu_acc_g; // IMU 加速度 (g)
+        // IMU 測量的原始角速度 (dps)
+        std::array<float, 3> imu_gyro_dps;
+
         // 所有馬達的數據陣列
         std::array<float, NUM_ROBOT_MOTORS> motor_positions_rad;
         std::array<float, NUM_ROBOT_MOTORS> motor_velocities_rad_s;
@@ -71,8 +76,12 @@ private:
         std::array<int16_t, NUM_ROBOT_MOTORS> actual_currents_mA;
         std::array<float, 3> ahrs_linear_accel_g;   // linearAccel 是從加速度計讀數中移除重力分量後得到的身體線性加速度(g)
         std::array<float, 3> ahrs_velocity_ms;      // velocity 是對線性加速度進行積分後估算出的身體線速度(m/s)
-        std::array<CascadeDebugInfo, NUM_ROBOT_MOTORS> cascade_debug_infos; // 這個結構體陣列儲存了每個馬達在控制迴圈中的詳細內部狀態，包括位置誤差、目標速度、速度誤差等，是深度除錯的關鍵。
-    };
+
+        // AHRS 計算出的重力向量
+        std::array<float, 3> ahrs_gravity_vector;
+        // 所有馬達的詳細級聯控制除錯資訊
+        std::array<CascadeDebugInfo, NUM_ROBOT_MOTORS> cascade_debug_infos;
+        };
 
     // --- 私有輔助函式 ---
     void collectData();
