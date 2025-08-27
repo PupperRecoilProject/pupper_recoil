@@ -376,7 +376,7 @@ void TelemetrySystem::printAsPolicyStream() {
 
     // 4. 俯仰角 (1維, rad)
     // 從 度 轉換為 rad
-    Serial.print(_telemetry_data.pitch * DEG_TO_RAD, 6); Serial.print(",");
+    Serial.print(_telemetry_data.roll * DEG_TO_RAD, 6); Serial.print(",");
 
     // 5. 關節位置 (12維, rad)
     for (int i = 0; i < NUM_ROBOT_MOTORS; ++i) {
