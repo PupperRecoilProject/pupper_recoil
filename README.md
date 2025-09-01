@@ -29,7 +29,7 @@
 
 ---
 
-## 📖 指令參考手冊 (Command Reference - v3.4)
+## 📖 指令參考手冊 (Command Reference - v3.5)
 
 ### 語法提示 (Syntax Legend)
 *   `<variable>` : 表示需要使用者替換的變數
@@ -75,18 +75,29 @@
     *   描述：重置目標 `<target>` 的參數 `<p>` (或全部) 為預設值。
     *   範例：`reset m3 kp` 或 `reset all`
 
-> **目標對象 `<target>` 解釋**: `all`, `global`, `m<0-11>`, `g<h|u|l>`, `gl<0-3>`, `g<f|r>`
+> **目標對象 `<target>` 解釋**:
+> *   `m<0-11>`: 單一馬達。
+> *   `g<h|u|l>`, `gl<0-3>`, `g<f|r>`: 關節組。
+> *   `all`:
+>     *   用於 `set`: 設定**全域(Global)**參數。
+>     *   用於 `get`: 獲取**全域(Global)**參數的生效值。
+>     *   用於 `reset`: **[危險]** 重置**所有**全域及單一馬達參數。
+> *   `global`:
+>     *   **僅用於 `reset` 指令**，重置**全域(Global)**參數。
 
 ---
 ### 遙測與監控 (Telemetry & Monitoring)
 *   `status`
-    *   描述：打印一次性的完整狀態報告。
-*   `monitor <h|c|d>`
-    *   描述：設定遙測格式 (h:人類, c:CSV, d:儀表板)。
-    *   **注意**: `monitor c` 的 CSV 格式為單行寬格式，專為數據分析設計。
+    *   描述：打印一次性的完整狀態報告 (等同於臨時切換到 `human` 模式並打印一次)。
+*   `monitor (h|c|d|p)`
+    *   描述：設定遙測格式。
+    *   `h` 或 `human`: 詳細的人類可讀狀態。
+    *   `c` 或 `csv`: 單行寬 CSV 格式，專為數據分析設計。
+    *   `d` 或 `dashboard`: 儀表板專用格式。
+    *   `p` 或 `policy`: 策略數據流格式 (開發者用)。
 *   `monitor freq <hz>`
     *   描述：設定遙測數據的更新頻率 (Hz)。
-*   `monitor <pause|resume>`
+*   `monitor (pause|resume)`
     *   描述：暫停或恢復遙測數據流。
 *   `focus <m<id>|off>`
     *   描述：設定儀表板或日誌的焦點馬達，或關閉焦點。
@@ -105,25 +116,24 @@
     *   描述：為指定馬達啟動擺動測試。
 
 ---
-## 🛠️ 開發者指南：指令系統設計 (Developer's Guide: Command System Design)
+## 🛠️ 開發者指南：指令系統設計 (Developer's Guide - v3.5 Update)
 
 本節內容面向開發者，闡述了指令系統的底層設計哲學與規範。所有對 `CommandHandler` 模組的修改與擴充都應遵循此指南。
 
 ### 1. 核心設計哲學
 
 *   **分層式解析 (Layered Parsing)**：指令解析遵循 `動詞 -> 目標 -> 參數` 的層次結構，確保邏輯清晰。
-*   **明確性優先 (Explicitness over Implicitness)**：指令意圖應明確，避免需要複雜上下文理解的「魔術」指令。例如，`+=` 運算符明確觸發相對運動。
-*   **一致性與可預測性 (Consistency & Predictability)**：相似的操作應有相似的語法。例如 `set`, `get`, `reset` 擁有高度一致的目標對象語法。
+*   **明確性優先 (Explicitness over Implicitness)**：指令意圖應明確，避免需要複雜上下文理解的「魔術」指令。例如，`+=` 運算符明確觸發相對運動。`reset all` 和 `reset global` 的行為有明確區分。
+*   **一致性與可預測性 (Consistency & Predictability)**：相似的操作應有相似的語法。例如 `set`, `get`, `reset` 擁有高度一致的目標對象語法，但需注意其細微行為差異。
 
 ### 2. 語法結構規範
 
 *   **基本結構**: `動詞 [目標] [參數...]`，由空格分隔，不區分大小寫。
 *   **目標指示符 (Target Specifiers)**:
     *   `m<id>`: **M**otor
-    *   `g<name>`: **G**roup
-    *   `gl<id>`: **G**roup of **L**eg
-    *   `all`: 特殊關鍵字，指所有馬達
-    *   `global`: 特殊關鍵字，指全域參數作用域
+    *   `g<name>`: **G**roup (e.g., `gh`, `gu`, `gl0`, `gf`)
+    *   `all`: 特殊關鍵字，通常指代所有馬達或作為全域操作的別名。
+    *   `global`: 特殊關鍵字，指全域參數作用域，**僅在 `reset` 指令中有效**。
 
 ### 3. 擴展與別名原則
 
@@ -133,7 +143,10 @@
 ### 4. 參數系統交互原則
 
 *   **級聯覆蓋原則**: 參數生效優先級為 `單一馬達設定` > `全域設定` > `系統預設值`。
-*   **層級化重置**: `reset` 指令的影響範圍依目標而定，從單一參數到整個系統。
+*   **層級化重置**: `reset` 指令的影響範圍依目標而定：
+    *   `reset m<id>`: 重置單一馬達的設定。
+    *   `reset global`: 重置全域設定。
+    *   `reset all`: 同時重置全域**和**所有單一馬達的設定。
 
 ---
 
