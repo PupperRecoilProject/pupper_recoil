@@ -76,7 +76,8 @@ void setup() {
     Serial.println(" Pupper Robot :: Command Set v3.3");
     Serial.println("========================================");
     Serial.println("--- Movement ---");
-    Serial.println("  stand                     - Enter standing pose.");
+    Serial.println("  stand                     - Enter stable standing pose (tested values).");
+    Serial.println("  zero                      - Move to the calibrated zero pose (functional home).");
     Serial.println("  move m<id> <rad>          - Absolute move for a motor.");
     Serial.println("  move m<id> += <rad>       - Relative move for a motor.");
     Serial.println("  move g<h|u|l> <rad>       - Move a joint group (hip, upper, lower).");

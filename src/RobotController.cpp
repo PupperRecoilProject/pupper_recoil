@@ -11,14 +11,28 @@
 //   手動校準姿態定義
 // =================================================================
 
-// --- 步驟 1: 定義基礎角度 ---
-// 在這裡定義您手動擺放時，單一 "右腿" 的目標關節角度。
-// 這些值將被用來生成一個完整的、對稱的12關節姿態。
-const float HIP_JOINT_RAD       = 0.0f; // 髖關節 (左右擺動, Abduction/Adduction)
-const float UPPER_LEG_JOINT_RAD = -1.18f; // 大腿關節 (前後擺動, Hip Flexion/Extension)
-const float LOWER_LEG_JOINT_RAD = -2.68f; // 小腿關節 (膝蓋彎曲, Knee Flexion/Extension)
+//   1. 物理參考姿態定義 (Physical Reference Pose)
+// 描述機器人腿部完全垂直於地面時的關節角度。這是物理基準。
+// 舊版的歸零角度
+const float VERTICAL_HIP_RAD = 0.0f;
+const float VERTICAL_UPPER_LEG_RAD = -1.18f;
+const float VERTICAL_LOWER_LEG_RAD = -2.68f;
 
-// --- 步驟 2: 檢視完整的對稱姿態 ---
+//   2. 校準目標偏移定義 (Calibration Target Offset)
+// 為了新的功能性零點，在理想坐標系中定義的設計偏移。
+// 符合 onnx 的歸零角度差
+const float CAL_TARGET_OFFSET_HIP_RAD   = 0.0f;
+const float CAL_TARGET_OFFSET_UPPER_RAD = 0.79f; // 45°
+const float CAL_TARGET_OFFSET_LOWER_RAD = 1.57f; // 90°
+
+//   3. 最終校準姿態計算 (Final Calibration Pose)
+// 'cal' 指令實際使用的最終參考姿態，由「物理參考」+「設計偏移」計算得出。
+// 新版的歸零角度
+const float HIP_JOINT_RAD   = VERTICAL_HIP_RAD + CAL_TARGET_OFFSET_HIP_RAD;
+const float UPPER_LEG_JOINT_RAD = VERTICAL_UPPER_LEG_RAD + CAL_TARGET_OFFSET_UPPER_RAD;
+const float LOWER_LEG_JOINT_RAD = VERTICAL_LOWER_LEG_RAD + CAL_TARGET_OFFSET_LOWER_RAD;
+
+//   4. 檢視完整的對稱姿態
 // 這是根據上面的基礎角度和標準的四足對稱性生成的最終校準姿態。
 // 您通常不需要修改這裡，除非您的機器人有非標準的對稱結構。
 //
@@ -45,6 +59,39 @@ const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad = {
     -UPPER_LEG_JOINT_RAD,            // RL upper leg
     -LOWER_LEG_JOINT_RAD             // RL lower leg
 };
+
+// =================================================================
+//   通用指令姿態定義 (General Command Poses)
+// =================================================================
+
+// --- Part A: 定義在「舊校準體系」下的已知穩定站姿 ---
+const float OLD_FRAME_STAND_HIP_RAD   = 0.2f;
+const float OLD_FRAME_STAND_UPPER_F_RAD = -0.7f; // 前腿
+const float OLD_FRAME_STAND_UPPER_R_RAD = -0.9f; // 後腿
+const float OLD_FRAME_STAND_LOWER_RAD = 1.2f;
+
+// --- Part B: 根據方向係數，計算在新校準體系下等效的站姿 ---
+// 根據公式: NewCmd = OldCmd + (Offset * DirectionMultiplier)
+// 為了程式碼清晰，我們直接使用對應關節的偏移和方向係數
+// 注意：這裡的方向係數只看右腿 (FR, RR) 即可，左腿的對稱性在 Part C 中處理
+const float NEW_FRAME_STAND_HIP_RAD   = OLD_FRAME_STAND_HIP_RAD   + (CAL_TARGET_OFFSET_HIP_RAD   * 1); // Hip multiplier is 1
+const float NEW_FRAME_STAND_UPPER_F_RAD = OLD_FRAME_STAND_UPPER_F_RAD + (CAL_TARGET_OFFSET_UPPER_RAD * 1); // Upper multiplier is 1
+const float NEW_FRAME_STAND_UPPER_R_RAD = OLD_FRAME_STAND_UPPER_R_RAD + (CAL_TARGET_OFFSET_UPPER_RAD * 1); // Upper multiplier is 1
+const float NEW_FRAME_STAND_LOWER_RAD = OLD_FRAME_STAND_LOWER_RAD + (CAL_TARGET_OFFSET_LOWER_RAD * -1); // Lower multiplier is -1
+
+// --- Part C: 最終生成 'stand' 指令使用的姿態陣列 ---
+const std::array<float, NUM_ROBOT_MOTORS> default_standing_pose_rad = {
+    NEW_FRAME_STAND_HIP_RAD, NEW_FRAME_STAND_UPPER_F_RAD, NEW_FRAME_STAND_LOWER_RAD,
+    NEW_FRAME_STAND_HIP_RAD, NEW_FRAME_STAND_UPPER_F_RAD, NEW_FRAME_STAND_LOWER_RAD,
+    NEW_FRAME_STAND_HIP_RAD, NEW_FRAME_STAND_UPPER_R_RAD, NEW_FRAME_STAND_LOWER_RAD,
+    NEW_FRAME_STAND_HIP_RAD, NEW_FRAME_STAND_UPPER_R_RAD, NEW_FRAME_STAND_LOWER_RAD,
+};
+
+// 專門用於 'zero' 指令的姿態（全零，移動到新的校準零點）
+const std::array<float, NUM_ROBOT_MOTORS> zero_pose_rad = {
+    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0
+};
+
 
 // 定義在 .h 中宣告的靜態常數系統預設參數
 const CascadeParams RobotController::SYSTEM_DEFAULT_PARAMS = {
