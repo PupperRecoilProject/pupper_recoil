@@ -49,7 +49,7 @@ void setup() {
     digitalWrite(LED_BUILTIN, HIGH);
     delay(500);
 
-    Serial.begin(115200);
+    Serial.begin(921600); // 115200
     while (!Serial && millis() < 4000);
 
     Serial.println("\n--- Pupper Robot Control System ---");
