@@ -21,9 +21,9 @@ const float VERTICAL_LOWER_LEG_RAD = -2.68f;
 //   2. 校準目標偏移定義 (Calibration Target Offset)
 // 為了新的功能性零點，在理想坐標系中定義的設計偏移。
 // 符合 onnx 的歸零角度差
-const float CAL_TARGET_OFFSET_HIP_RAD   = 0.0f;
-const float CAL_TARGET_OFFSET_UPPER_RAD = 0.79f; // 45°
-const float CAL_TARGET_OFFSET_LOWER_RAD = 1.57f; // 90°
+const float CAL_TARGET_OFFSET_HIP_RAD   = -0.2f; // 0
+const float CAL_TARGET_OFFSET_UPPER_RAD = 0.7f; // 45° 0.79
+const float CAL_TARGET_OFFSET_LOWER_RAD = 1.2f; // 90° 1.57
 
 //   3. 最終校準姿態計算 (Final Calibration Pose)
 // 'cal' 指令實際使用的最終參考姿態，由「物理參考」+「設計偏移」計算得出。
