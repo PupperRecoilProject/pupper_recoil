@@ -10,6 +10,8 @@
 const int NUM_ROBOT_MOTORS = 12;
 const int CONTROL_FREQUENCY_HZ_H = 1000;
 extern const std::array<float, NUM_ROBOT_MOTORS> manual_calibration_pose_rad;
+extern const std::array<float, NUM_ROBOT_MOTORS> default_standing_pose_rad;
+extern const std::array<float, NUM_ROBOT_MOTORS> zero_pose_rad;
 
 struct CascadeDebugInfo {
     float target_pos_rad;

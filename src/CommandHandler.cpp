@@ -62,7 +62,7 @@ void CommandHandler::executeCommand(String command) {
     String action = args[0];
     action.toLowerCase();
 
-    if (action == "move" || action == "stand") {
+    if (action == "move" || action == "stand" || action == "zero") {
         handleMoveCommand(args);
     } else if (action == "set") {
         handleSetCommand(args);
@@ -93,8 +93,15 @@ void CommandHandler::handleMoveCommand(const std::vector<String>& args) {
     // 處理特例 "stand"
     if (action == "stand") {
         if (args.size() != 1) { Serial.println("  [ERROR] Use: stand"); return; }
-        Serial.println("  [CMD] Robot standing up...");
-        _robot->setRobotPoseCascade(manual_calibration_pose_rad);
+        Serial.println("  [CMD] Robot entering stable standing pose...");
+        _robot->setRobotPoseCascade(default_standing_pose_rad); // <-- 使用新的穩定站姿
+        return;
+    } 
+    // --- "zero" 指令的處理邏輯 ---
+    else if (action == "zero") {
+        if (args.size() != 1) { Serial.println("  [ERROR] Use: zero"); return; }
+        Serial.println("  [CMD] Robot moving to calibrated zero pose...");
+        _robot->setRobotPoseCascade(zero_pose_rad); // <-- 使用新的零點姿態
         return;
     }
 
